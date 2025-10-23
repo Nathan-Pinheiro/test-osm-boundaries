@@ -26,10 +26,56 @@
   
   // Initialiser la carte avec vue sur l'Europe
   const map = L.map('map').setView([46, 2], 5);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19
-  }).addTo(map);
+  
+  // Options de couches de tuiles
+  const basemaps = {
+    'OpenMapTiles (Streets)': L.tileLayer('https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key={apikey}', {
+      attribution: '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>',
+      apikey: '', // Sera rempli par l'API du serveur
+      tileSize: 512,
+      zoomOffset: -1,
+      minZoom: 1,
+      maxZoom: 19
+    }),
+    'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19
+    }),
+    'OpenMapTiles (Satellite)': L.tileLayer('https://api.maptiler.com/maps/hybrid/{z}/{x}/{y}.jpg?key={apikey}', {
+      attribution: '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>',
+      apikey: '', // Sera rempli par l'API du serveur
+      tileSize: 512,
+      zoomOffset: -1,
+      minZoom: 1,
+      maxZoom: 19
+    })
+  };
+  
+  // Ajouter la couche par défaut (OpenStreetMap pour l'instant)
+  basemaps['OpenStreetMap'].addTo(map);
+  
+  // Récupérer la clé API OpenMapTiles depuis le serveur
+  fetch(`${API_BASE_URL}/api/map-config`)
+    .then(response => response.json())
+    .then(config => {
+      if (config.openmaptiles_key) {
+        // Mettre à jour les couches avec la clé API
+        basemaps['OpenMapTiles (Streets)'].options.apikey = config.openmaptiles_key;
+        basemaps['OpenMapTiles (Satellite)'].options.apikey = config.openmaptiles_key;
+        
+        // Si la clé est valide, utiliser OpenMapTiles comme couche par défaut
+        map.removeLayer(basemaps['OpenStreetMap']);
+        basemaps['OpenMapTiles (Streets)'].addTo(map);
+      }
+      
+      // Ajouter le contrôle des couches
+      L.control.layers(basemaps, {}, {position: 'topright'}).addTo(map);
+    })
+    .catch(err => {
+      console.error('Erreur lors de la récupération de la configuration de la carte:', err);
+      // Continuer avec OpenStreetMap comme fallback
+      L.control.layers(basemaps, {}, {position: 'topright'}).addTo(map);
+    });
 
   // Variables pour stocker les éléments affichés sur la carte
   let currentCountryLayer = null;

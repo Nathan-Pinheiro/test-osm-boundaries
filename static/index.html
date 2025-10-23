@@ -17,6 +17,12 @@
 <body>
   <div id="map"></div>
   <div class="info" id="info">Cliquez sur la carte pour identifier le pays.</div>
+  <div id="stats-panel" style="position:absolute; right:10px; bottom:20px; z-index:1000; background:rgba(255,255,255,0.9); padding:10px; border-radius:4px; box-shadow:0 0 15px rgba(0,0,0,0.2); display:none;">
+    <h3 style="margin-top:0;">Statistiques du serveur</h3>
+    <div id="stats-content">Chargement...</div>
+    <button onclick="toggleStats()" style="position:absolute; top:5px; right:5px; border:none; background:none; cursor:pointer; font-size:16px;">&times;</button>
+  </div>
+  <button id="stats-button" onclick="toggleStats()" style="position:absolute; right:10px; bottom:20px; z-index:999; background:#2980b9; color:white; border:none; border-radius:4px; padding:8px 12px; cursor:pointer;">Statistiques</button>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -308,6 +314,96 @@
     } catch(e) {
       console.error('Erreur de synthèse vocale:', e);
     }
+  }
+  
+  // Fonctions pour les statistiques
+  let statsVisible = false;
+  
+  function toggleStats() {
+    const panel = document.getElementById('stats-panel');
+    const button = document.getElementById('stats-button');
+    
+    if (statsVisible) {
+      panel.style.display = 'none';
+      button.style.display = 'block';
+    } else {
+      panel.style.display = 'block';
+      button.style.display = 'none';
+      fetchStats();
+    }
+    
+    statsVisible = !statsVisible;
+  }
+  
+  function fetchStats() {
+    const content = document.getElementById('stats-content');
+    content.innerHTML = 'Chargement des statistiques...';
+    
+    fetch(`${API_BASE_URL}/api/stats`)
+      .then(response => response.json())
+      .then(data => {
+        // Format the statistics nicely
+        const geocodingHits = data.cache.hits_misses.geocoding?.hits || 0;
+        const geocodingMisses = data.cache.hits_misses.geocoding?.misses || 0;
+        const geocodingTotal = geocodingHits + geocodingMisses;
+        const geocodingRate = geocodingTotal > 0 ? Math.round((geocodingHits / geocodingTotal) * 100) : 0;
+        
+        const boundaryHits = data.cache.hits_misses.boundary?.hits || 0;
+        const boundaryMisses = data.cache.hits_misses.boundary?.misses || 0;
+        const boundaryTotal = boundaryHits + boundaryMisses;
+        const boundaryRate = boundaryTotal > 0 ? Math.round((boundaryHits / boundaryTotal) * 100) : 0;
+        
+        const statsHTML = `
+          <table style="width:100%; border-collapse:collapse;">
+            <tr>
+              <th colspan="2" style="text-align:left; padding:5px; border-bottom:1px solid #ddd;">Cache</th>
+            </tr>
+            <tr>
+              <td style="padding:5px;">Géocodage:</td>
+              <td style="padding:5px;">${data.cache.size.geocoding} entrées</td>
+            </tr>
+            <tr>
+              <td style="padding:5px;">Frontières:</td>
+              <td style="padding:5px;">${data.cache.size.boundary} entrées</td>
+            </tr>
+            <tr>
+              <th colspan="2" style="text-align:left; padding:5px; border-bottom:1px solid #ddd; border-top:1px solid #ddd;">Performance</th>
+            </tr>
+            <tr>
+              <td style="padding:5px;">Taux cache géocodage:</td>
+              <td style="padding:5px;">${geocodingRate}% (${geocodingHits}/${geocodingTotal})</td>
+            </tr>
+            <tr>
+              <td style="padding:5px;">Taux cache frontières:</td>
+              <td style="padding:5px;">${boundaryRate}% (${boundaryHits}/${boundaryTotal})</td>
+            </tr>
+            <tr>
+              <th colspan="2" style="text-align:left; padding:5px; border-bottom:1px solid #ddd; border-top:1px solid #ddd;">Serveur</th>
+            </tr>
+            <tr>
+              <td style="padding:5px;">Status:</td>
+              <td style="padding:5px;">${data.server.uptime}</td>
+            </tr>
+            <tr>
+              <td style="padding:5px;">Version:</td>
+              <td style="padding:5px;">${data.server.version}</td>
+            </tr>
+          </table>
+          <div style="margin-top:10px; text-align:center;">
+            <button onclick="fetchStats()" style="background:#2980b9; color:white; border:none; border-radius:4px; padding:5px 10px; cursor:pointer;">Rafraîchir</button>
+          </div>
+        `;
+        
+        content.innerHTML = statsHTML;
+      })
+      .catch(err => {
+        console.error('Erreur lors de la récupération des statistiques:', err);
+        content.innerHTML = `
+          <div style="color:red;">Erreur lors de la récupération des statistiques</div>
+          <div>${err.message}</div>
+          <button onclick="fetchStats()" style="background:#2980b9; color:white; border:none; border-radius:4px; padding:5px 10px; cursor:pointer; margin-top:10px;">Réessayer</button>
+        `;
+      });
   }
   </script>
 </body>

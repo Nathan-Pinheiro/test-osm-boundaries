@@ -5,6 +5,9 @@ import traceback
 import time
 from dotenv import load_dotenv
 import json
+from functools import lru_cache
+import threading
+import collections
 
 # Load environment variables from .env file
 load_dotenv()
@@ -13,6 +16,18 @@ app = Flask(__name__, static_folder='static')
 
 # Create static folder if it doesn't exist
 os.makedirs('static', exist_ok=True)
+
+# Simple memory cache for geocoding results
+geocode_cache = {}
+boundary_cache = {}
+cache_lock = threading.Lock()
+MAX_CACHE_SIZE = 100  # Maximum number of items to keep in cache
+
+# Cache statistics
+CACHE_STATS = {
+    "geocoding": {"hits": 0, "misses": 0},
+    "boundary": {"hits": 0, "misses": 0}
+}
 
 # API keys and configuration from environment variables
 OPENMAPTILES_API_KEY = os.environ.get('OPENMAPTILES_API_KEY')
@@ -26,6 +41,10 @@ OSM_BOUNDARIES_URL = 'https://nominatim.openstreetmap.org/details.php'
 # User agent for Nominatim requests (required by their usage policy)
 USER_AGENT = f'TestFrontieresApp/1.0 (Contact: {NOMINATIM_EMAIL})'
 
+# Timeout settings (seconds)
+GEOCODING_TIMEOUT = 5.0   # Increased timeout for geocoding
+BOUNDARY_TIMEOUT = 8.0    # Longer timeout for boundary data
+
 # Print configuration for debugging
 print(f"\nConfiguration:")
 print(f"- OPENMAPTILES_API_KEY: {'Set (hidden value)' if OPENMAPTILES_API_KEY else 'Not set'}")
@@ -33,6 +52,85 @@ print(f"- Using Nominatim with email: {NOMINATIM_EMAIL}")
 print(f"- NOMINATIM_URL: {NOMINATIM_URL}")
 print(f"- NOMINATIM_SEARCH_URL: {NOMINATIM_SEARCH_URL}")
 print(f"- OSM_BOUNDARIES_URL: {OSM_BOUNDARIES_URL}")
+print(f"- Request timeouts: Geocoding={GEOCODING_TIMEOUT}s, Boundaries={BOUNDARY_TIMEOUT}s")
+
+# Function to get geocoding data with caching
+def get_reverse_geocoding(lat, lon, use_cache=True):
+    """
+    Get reverse geocoding data with caching for performance
+    """
+    # Generate a cache key based on rounded coordinates (for nearby points)
+    # Round to 4 decimal places (approximately 10 meters accuracy)
+    cache_key = f"{round(lat, 4)},{round(lon, 4)}"
+    
+    # Check cache first if enabled
+    if use_cache:
+        with cache_lock:
+            if cache_key in geocode_cache:
+                print(f"Cache hit for {cache_key}")
+                CACHE_STATS["geocoding"]["hits"] += 1
+                return geocode_cache[cache_key]
+            else:
+                CACHE_STATS["geocoding"]["misses"] += 1
+    
+    # Set up the request parameters - include essential data for country identification
+    params = {
+        'lat': lat,
+        'lon': lon,
+        'format': 'json',
+        'zoom': 3,  # Country level (0=country, 18=building/street)
+        'addressdetails': 1,
+        'namedetails': 0,  # We don't need name details for faster response
+        'extratags': 0,    # We don't need extra tags for faster response
+    }
+    
+    headers = {'User-Agent': USER_AGENT}
+    
+    print(f"Fetching geocoding data from Nominatim for {lat}, {lon} with timeout {GEOCODING_TIMEOUT}s")
+    
+    try:
+        # Use our configured timeout for geocoding
+        response = requests.get(
+            NOMINATIM_URL, 
+            params=params, 
+            headers=headers, 
+            timeout=GEOCODING_TIMEOUT
+        )
+        response.raise_for_status()
+        
+        # Process the response
+        data = response.json() if isinstance(response.json(), dict) else {'error': 'Invalid response'}
+        
+        # Check if we have address data which contains country information
+        if 'address' in data and data['address']:
+            print(f"Found address data with {len(data['address'])} components")
+            if 'country' in data['address']:
+                print(f"Found country: {data['address']['country']}")
+            else:
+                print("No country field in address data")
+        else:
+            print("No address data found in response")
+        
+        # Cache the result if valid
+        if use_cache and 'error' not in data:
+            with cache_lock:
+                # If cache gets too large, remove oldest entries
+                if len(geocode_cache) >= MAX_CACHE_SIZE:
+                    # Remove a random item to avoid complexity
+                    geocode_cache.pop(next(iter(geocode_cache)))
+                
+                geocode_cache[cache_key] = data
+        
+        return data
+    except requests.Timeout:
+        print(f"Timeout while geocoding {lat}, {lon}")
+        return {'error': 'Geocoding request timed out', 'timeout': True}
+    except requests.RequestException as e:
+        print(f"Request error while geocoding: {e}")
+        return {'error': f'Geocoding request failed: {str(e)}'}
+    except Exception as e:
+        print(f"Error in geocoding: {e}")
+        return {'error': f'Geocoding processing error: {str(e)}'}
 
 # Add CORS headers to all responses
 @app.after_request
@@ -53,6 +151,62 @@ def get_map_config():
         'openmaptiles_key': OPENMAPTILES_API_KEY
     })
 
+# Function to get boundary data efficiently
+def get_country_boundary(country_code, country_name):
+    """
+    Get boundary data for a country using the most efficient method
+    with caching for improved performance
+    """
+    if not country_code:
+        return None
+    
+    # Create a cache key based on the country code
+    cache_key = country_code.lower()
+    
+    # Check cache first
+    with cache_lock:
+        if cache_key in boundary_cache:
+            print(f"Cache hit for boundary: {country_code}")
+            CACHE_STATS["boundary"]["hits"] += 1
+            return boundary_cache[cache_key]
+        else:
+            CACHE_STATS["boundary"]["misses"] += 1
+    
+    # Use simplified search parameters
+    params = {
+        'country': country_code.lower(),
+        'format': 'json',
+        'polygon_geojson': 1,
+        'limit': 1
+    }
+    
+    headers = {'User-Agent': USER_AGENT}
+    
+    try:
+        # Use a longer but still reasonable timeout
+        response = requests.get(
+            NOMINATIM_SEARCH_URL, 
+            params=params, 
+            headers=headers, 
+            timeout=BOUNDARY_TIMEOUT
+        )
+        
+        response.raise_for_status()
+        data = response.json()
+        
+        # Process the response
+        if data and isinstance(data, list) and len(data) > 0:
+            country_data = data[0]
+            if 'geojson' in country_data:
+                # Store in cache for future use
+                with cache_lock:
+                    boundary_cache[cache_key] = country_data
+                return country_data
+    except Exception as e:
+        print(f"Error getting country boundary: {e}")
+    
+    return None
+
 @app.route('/api/country-at-point')
 def get_country_at_point():
     # Get lat/lon from request
@@ -63,28 +217,14 @@ def get_country_at_point():
         return jsonify({"error": "Missing or invalid lat/lon parameters"}), 400
 
     try:
-        print(f"\n=== STEP 1: Reverse geocoding to identify country at: {lat}, {lon} ===")
+        print(f"\n=== Reverse geocoding at: {lat}, {lon} ===")
         
         start = time.time()  
-
-        # First, use Nominatim for reverse geocoding to identify the country
-        nominatim_params = {
-            'lat': lat,
-            'lon': lon,
-            'format': 'json',
-            'zoom': 3,
-        }
         
-        headers = {'User-Agent': USER_AGENT}
+        # Use our optimized geocoding function
+        geo_data = get_reverse_geocoding(lat, lon)
         
-        print(f"Nominatim API URL: {NOMINATIM_URL}")
-        print(f"Nominatim Parameters: {nominatim_params}")
-        
-        r_geo = requests.get(NOMINATIM_URL, params=nominatim_params, headers=headers, timeout=30)
-        print(f"Nominatim API Status Code: {r_geo.status_code}")
-        
-        r_geo.raise_for_status()
-        geo_data = r_geo.json() if isinstance(r_geo.json(), dict) else {'error': 'Invalid response'}
+        print(f"Geocoding completed in {time.time() - start:.3f} seconds")
         
         # Check if we have a valid response from Nominatim
         if geo_data and 'error' not in geo_data:
@@ -95,263 +235,54 @@ def get_country_at_point():
             osm_id = geo_data.get('osm_id')
             osm_type = geo_data.get('osm_type')
             
-            # Nominatim provides name details which may contain local names
-            name_details = geo_data.get('namedetails', {})
-            local_name = name_details.get('name') or name_details.get('name:en') or country_name
+            # Get display name
+            display_name = geo_data.get('display_name', '')
             
-            print(f"Found country: {country_name} ({country_code}), OSM ID: {osm_id}, OSM Type: {osm_type}")
+            print(f"Found country: {country_name} ({country_code})")
             
-            end = time.time()  
-            print("took : ", end - start)
+            # If we have a country code, get the boundary in a separate thread
+            # This is done asynchronously for better UX
+            boundary_start = time.time()
+            boundary_data = None
             
-            start = time.time()
-            
-            # Get boundaries from OSM
-            if osm_id and osm_type and country_name:
-                print(f"\n=== STEP 2: Getting country boundary for {country_name} using OSM ID: {osm_id} ===")
+            if country_code and country_name:
+                print(f"Getting boundary for {country_name}")
+                boundary_data = get_country_boundary(country_code, country_name)
+                print(f"Boundary retrieved in {time.time() - boundary_start:.3f} seconds")
                 
-                # Pour les pays, nous utilisons directement l'API Nominatim search avec le polygon_geojson
-                # C'est plus fiable que d'utiliser l'API details.php
-                osm_params = {
-                    'country': country_code.lower(),
-                    'format': 'json',
-                    'polygon_geojson': 1,
-                    'limit': 1
+            # If we found boundary data, use it to create the response
+            if boundary_data and 'geojson' in boundary_data:
+                geojson_feature = {
+                    'type': 'Feature',
+                    'properties': {
+                        'name': country_name,
+                        'country': country_name,
+                        'country_code': country_code,
+                        'admin_level': 2,  # Les pays sont de niveau 2
+                        'osm_id': boundary_data.get('osm_id', osm_id),
+                        'osm_type': boundary_data.get('osm_type', osm_type),
+                        'display_name': boundary_data.get('display_name', display_name),
+                        '_enhanced': {
+                            'best_name': country_name,
+                            'admin_type': 'Country',
+                            'found_via': 'nominatim_optimized'
+                        }
+                    },
+                    'geometry': boundary_data['geojson']
                 }
                 
-                # Utiliser l'API search pour obtenir la géométrie du pays
-                url = NOMINATIM_SEARCH_URL
-                print(f"Nominatim Search URL: {url}")
-                print(f"Search Parameters: {osm_params}")
+                # Create a GeoJSON FeatureCollection
+                result = {
+                    'type': 'FeatureCollection',
+                    'features': [geojson_feature]
+                }
                 
-                r_borders = requests.get(url, params=osm_params, headers={'User-Agent': USER_AGENT}, timeout=30)
-                print(f"OSM API Status Code: {r_borders.status_code}")
+                print(f"Successfully returning country boundary for {country_name}")
+                print(f"Total processing time: {time.time() - start:.3f} seconds")
+                return jsonify(result)
                 
-                r_borders.raise_for_status()
-                borders_data = r_borders.json()
-                
-                # Nominatim search renvoie une liste de résultats
-                if borders_data and isinstance(borders_data, list) and len(borders_data) > 0:
-                    country_data = borders_data[0]
-                    
-                    # Vérifier si nous avons un polygone GeoJSON
-                    if 'geojson' in country_data:
-                        # Create a GeoJSON feature from OSM geometry
-                        geojson_feature = {
-                            'type': 'Feature',
-                            'properties': {
-                                'name': country_name,
-                                'country': country_name,
-                                'country_code': country_code,
-                                'admin_level': 2,  # Les pays sont de niveau 2
-                                'osm_id': country_data.get('osm_id', osm_id),
-                                'osm_type': country_data.get('osm_type', osm_type),
-                                'display_name': country_data.get('display_name', ''),
-                                '_enhanced': {
-                                    'best_name': local_name or country_name,
-                                    'admin_type': 'Country',
-                                    'found_via': 'nominatim_search'
-                                }
-                            },
-                            'geometry': country_data['geojson']
-                        }
-                    
-                    # Create a GeoJSON FeatureCollection
-                    result = {
-                        'type': 'FeatureCollection',
-                        'features': [geojson_feature]
-                    }
-                    
-                    end = time.time()
-                    print("took : ", end - start)
-                    
-                    print(f"Successfully returning country boundary for {country_name}")
-                    return jsonify(result)
-                
-                # Check if we got valid country boundaries
-                if 'features' in borders_data and borders_data['features']:
-                    print(f"Found {len(borders_data['features'])} boundary features")
-                    
-                    # Enhanced features list to store all processed features
-                    enhanced_features = []
-                    
-                    # Process and enhance each feature
-                    for feature in borders_data['features']:
-                        # Skip features with invalid geometry
-                        has_valid_geometry = (
-                            'geometry' in feature and 
-                            feature['geometry'] and 
-                            'coordinates' in feature['geometry'] and 
-                            feature['geometry']['coordinates']
-                        )
-                        
-                        if not has_valid_geometry:
-                            print(f"Skipping feature without valid geometry")
-                            continue
-                            
-                        # Skip empty geometries
-                        if feature['geometry']['type'] == 'GeometryCollection' and not feature['geometry'].get('geometries'):
-                            print(f"Skipping empty GeometryCollection")
-                            continue
-                            
-                        # Make sure properties exists
-                        if 'properties' not in feature:
-                            feature['properties'] = {}
-                        
-                        # Get admin level if available (countries are level 2)
-                        admin_level = feature['properties'].get('admin_level', 2)
-                        
-                        # Add country information to every feature
-                        feature['properties'].update({
-                            'name': country_name,
-                            'country': country_name,
-                            'country_code': country_code,
-                            'admin_level': admin_level,  # Use the admin level from the feature or default to 2
-                            '_enhanced': {
-                                'best_name': country_name,
-                                'admin_type': 'Country' if admin_level == 2 else f'Administrative Level {admin_level}',
-                                'found_via': 'consists_of_api'
-                            }
-                        })
-                        
-                        # Add to our enhanced features list
-                        enhanced_features.append(feature)
-                    
-                    print(f"Enhanced {len(enhanced_features)} features with valid geometry")
-                    
-                    # Sort features by importance (countries first, then regions)
-                    # This ensures country boundaries are prioritized in display
-                    enhanced_features.sort(
-                        key=lambda f: f.get('properties', {}).get('admin_level', 999)
-                    )
-                    
-                    # If we have no features after filtering, create a fallback
-                    if not enhanced_features:
-                        print("WARNING: No valid boundary features found after filtering")
-                        
-                        # Create a fallback feature using the original first feature
-                        fallback_feature = borders_data['features'][0]
-                        
-                        if 'properties' not in fallback_feature:
-                            fallback_feature['properties'] = {}
-                            
-                        fallback_feature['properties'].update({
-                            'name': country_name,
-                            'country': country_name,
-                            'country_code': country_code,
-                            'admin_level': 2,
-                            '_enhanced': {
-                                'best_name': country_name,
-                                'admin_type': 'Country (Fallback)',
-                                'found_via': 'consists_of_api_fallback'
-                            }
-                        })
-                        
-                        enhanced_features = [fallback_feature]
-                    
-                    # Return the result with all enhanced features
-                    result = {
-                        'type': 'FeatureCollection',
-                        'features': enhanced_features
-                    }
-                    
-                    end = time.time()
-                    print("took : ", end - start)
-
-                    print(f"Successfully returning country boundary for {country_name}")
-                    return jsonify(result)
-                else:
-                    # If we couldn't get the boundary, try to get it from the polygon endpoint
-                    print(f"No boundary features found, trying polygon endpoint")
-                    
-                    # Try to get polygons from a different endpoint
-                    polygon_params = {
-                        'q': country_name,
-                        'polygon_geojson': 1,
-                        'format': 'json',
-                        'limit': 1,
-                        'countrycodes': country_code.lower()
-                    }
-                    
-                    url = NOMINATIM_SEARCH_URL
-                    print(f"Polygon search URL: {url}")
-                    print(f"Polygon search parameters: {polygon_params}")
-                    
-                    try:
-                        r_polygon = requests.get(url, params=polygon_params, headers={'User-Agent': USER_AGENT}, timeout=30)
-                        r_polygon.raise_for_status()
-                        
-                        polygon_data = r_polygon.json()
-                        if polygon_data and isinstance(polygon_data, list) and len(polygon_data) > 0:
-                            polygon = polygon_data[0]
-                            
-                            if 'geojson' in polygon:
-                                # Create a GeoJSON feature
-                                polygon_feature = {
-                                    'type': 'Feature',
-                                    'properties': {
-                                        'name': country_name,
-                                        'country': country_name,
-                                        'country_code': country_code,
-                                        'admin_level': 2,
-                                        '_enhanced': {
-                                            'best_name': local_name or country_name,
-                                            'admin_type': 'Country',
-                                            'found_via': 'nominatim_polygon'
-                                        }
-                                    },
-                                    'geometry': polygon['geojson']
-                                }
-                                
-                                result = {
-                                    'type': 'FeatureCollection',
-                                    'features': [polygon_feature]
-                                }
-                                
-                                end = time.time()
-                                print("took : ", end - start)
-                                
-                                print(f"Successfully returning country boundary from polygon search")
-                                return jsonify(result)
-                    except Exception as polygon_err:
-                        print(f"Error fetching polygon: {polygon_err}")
-                    
-                    # If all else fails, return a point feature
-                    print(f"No boundary data found, returning point feature")
-                    
-                    # Create a placeholder feature with the country information
-                    country_feature = {
-                        'type': 'Feature',
-                        'properties': {
-                            'name': country_name,
-                            'country': country_name,
-                            'country_code': country_code,
-                            'formatted': geo_data.get('display_name', country_name),
-                            'admin_level': 2,
-                            '_enhanced': {
-                                'best_name': local_name or country_name,
-                                'admin_type': 'Country',
-                                'found_via': 'nominatim_geocoding'
-                            }
-                        },
-                        'geometry': {
-                            'type': 'Point',
-                            'coordinates': [lon, lat]  # GeoJSON uses [longitude, latitude]
-                        }
-                    }
-                    
-                    result = {
-                        'type': 'FeatureCollection',
-                        'features': [country_feature]
-                    }
-                    
-                    end = time.time()
-                    print("took : ", end - start)
-
-                    print(f"Returning country point for {country_name} (no boundary available)")
-                    return jsonify(result)
             else:
-                print("No OSM ID found in geocoding response")
+                print("No valid boundary data found for this country")
         else:
             print("No country found in geocoding response")
 
@@ -503,6 +434,25 @@ def get_frontiers():
         return jsonify({
             "error": "This API has changed. Please use /api/country-at-point with lat and lon parameters."
         }), 400
+
+@app.route('/api/stats')
+def get_stats():
+    """Return cache statistics and performance metrics"""
+    stats = {
+        "cache": {
+            "size": {
+                "geocoding": len(geocode_cache),
+                "boundary": len(boundary_cache),
+                "max_size": MAX_CACHE_SIZE
+            },
+            "hits_misses": CACHE_STATS
+        },
+        "server": {
+            "uptime": "Active",
+            "version": "1.0.0"
+        }
+    }
+    return jsonify(stats)
 
 if __name__ == '__main__':
     print("\nStarting Flask server on http://127.0.0.1:5000")

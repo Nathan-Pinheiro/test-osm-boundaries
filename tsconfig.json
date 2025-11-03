@@ -13,6 +13,6 @@
     "outDir": "./public/js",
     "rootDir": "./public/ts"
   },
-  "include": ["src/**/*.ts", "public/ts/config.ts", "public/ts/geocoding.ts", "public/ts/map.ts", "public/ts/stats.ts", "public/ts/ui.ts"],
+  "include": ["public/ts/*.ts"],
   "exclude": ["node_modules"]
 }

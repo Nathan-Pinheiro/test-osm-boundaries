@@ -1,20 +1,10 @@
 import { CONFIG } from './config.js';
 
-interface Address {
-  country?: string;
-  country_code?: string;
-  state?: string;
-  county?: string;
-  city?: string;
-  [key: string]: string | undefined;
-}
-
-interface NominatimResponse {
-  address?: Address;
-  osm_id?: number;
-  osm_type?: string;
-  display_name?: string;
-  [key: string]: any;
+// Types pour le fichier countries.geojson
+interface CountryGeoJSONProperties {
+  name: string;
+  'ISO3166-1-Alpha-2': string;
+  'ISO3166-1-Alpha-3': string;
 }
 
 interface GeoJSON {
@@ -23,35 +13,23 @@ interface GeoJSON {
   geometries?: GeoJSON[];
 }
 
-interface BoundaryData {
-  geojson: GeoJSON;
-  osm_id?: number;
-  osm_type?: string;
-  display_name?: string;
+interface CountryFeature {
+  type: 'Feature';
+  properties: CountryGeoJSONProperties;
+  geometry: GeoJSON;
 }
 
-interface CacheStats {
-  hits: number;
-  misses: number;
+interface CountriesGeoJSON {
+  type: 'FeatureCollection';
+  features: CountryFeature[];
 }
 
-interface GeocodeCache {
-  geocode: Map<string, NominatimResponse>;
-  boundary: Map<string, BoundaryData>;
-  stats: {
-    geocoding: CacheStats;
-    boundary: CacheStats;
-  };
-}
-
+// Types pour l'export
 export interface FeatureProperties {
   name: string;
   country: string;
   country_code: string;
   admin_level: number;
-  osm_id?: number;
-  osm_type?: string;
-  display_name?: string;
   state?: string;
   county?: string;
   city?: string;
@@ -73,186 +51,155 @@ interface FeatureCollection {
   features: Feature[];
 }
 
-const GeocodeCache: GeocodeCache = {
-  geocode: new Map<string, NominatimResponse>(),
-  boundary: new Map<string, BoundaryData>(),
+// Cache
+interface CacheStats {
+  hits: number;
+  misses: number;
+}
+
+interface GeocodeCache {
+  countriesData: CountriesGeoJSON | null;
+  pointLookup: Map<string, string>;
   stats: {
-    geocoding: { hits: 0, misses: 0 },
-    boundary: { hits: 0, misses: 0 }
+    lookup: CacheStats;
+    geojsonLoad: CacheStats;
+  };
+}
+
+export const GeocodeCache: GeocodeCache = {
+  countriesData: null,
+  pointLookup: new Map<string, string>(),
+  stats: {
+    lookup: { hits: 0, misses: 0 },
+    geojsonLoad: { hits: 0, misses: 0 }
   }
 };
 
-async function reverseGeocode(lat: number, lon: number): Promise<NominatimResponse> {
-  const cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
-  
-  if (GeocodeCache.geocode.has(cacheKey)) {
-    GeocodeCache.stats.geocoding.hits++;
-    console.log(`[GEOCODE CACHE HIT] ${cacheKey}`);
-    return GeocodeCache.geocode.get(cacheKey)!;
+// Chargement du GeoJSON
+async function loadCountriesGeoJSON(): Promise<CountriesGeoJSON> {
+  if (GeocodeCache.countriesData) {
+    GeocodeCache.stats.geojsonLoad.hits++;
+    console.log('[GEOJSON CACHE HIT] Countries data already loaded');
+    return GeocodeCache.countriesData;
   }
-  
-  GeocodeCache.stats.geocoding.misses++;
-  
-  const params = new URLSearchParams({
-    lat: lat.toString(),
-    lon: lon.toString(),
-    format: 'json',
-    zoom: '3',
-    addressdetails: '1'
-  });
-  
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), CONFIG.GEOCODING_TIMEOUT);
+
+  GeocodeCache.stats.geojsonLoad.misses++;
   const startTime = performance.now();
-  
+
   try {
-    const response = await fetch(`${CONFIG.NOMINATIM_URL}?${params}`, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': CONFIG.USER_AGENT
-      }
-    });
-    
-    clearTimeout(timeoutId);
-    
+    const response = await fetch('data/countries.geojson');
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    
-    const data: NominatimResponse = await response.json();
+
+    const data: CountriesGeoJSON = await response.json();
     const duration = (performance.now() - startTime).toFixed(2);
-    console.log(`[GEOCODE] ${lat.toFixed(4)}, ${lon.toFixed(4)} → ${data.address?.country || 'Unknown'} (${duration}ms)`);
-    
-    if (GeocodeCache.geocode.size >= CONFIG.MAX_CACHE_SIZE) {
-      const firstKey = GeocodeCache.geocode.keys().next().value;
-      if (firstKey) GeocodeCache.geocode.delete(firstKey);
-    }
-    
-    GeocodeCache.geocode.set(cacheKey, data);
+    console.log(`[GEOJSON LOADED] ${data.features.length} countries in ${duration}ms`);
+
+    GeocodeCache.countriesData = data;
     return data;
   } catch (error) {
-    clearTimeout(timeoutId);
     const duration = (performance.now() - startTime).toFixed(2);
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`[GEOCODE ERROR] ${lat.toFixed(4)}, ${lon.toFixed(4)} (${duration}ms):`, errorMessage);
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Timeout');
-    }
+    console.error(`[GEOJSON ERROR] Failed to load countries (${duration}ms):`, errorMessage);
     throw error;
   }
 }
 
-function countGeometryPoints(geometry: GeoJSON | null | undefined): number {
-  if (!geometry) return 0;
-  
-  let count = 0;
-  
-  if (geometry.type === 'Point') {
-    return 1;
-  } else if (geometry.type === 'LineString') {
-    return geometry.coordinates.length;
-  } else if (geometry.type === 'Polygon') {
-    geometry.coordinates.forEach((ring: any) => {
-      count += ring.length;
-    });
+// Algorithme Point-in-Polygon
+function pointInPolygon(point: [number, number], polygon: number[][][]): boolean {
+  const [lon, lat] = point;
+
+  for (const ring of polygon) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1];
+      const xj = ring[j][0], yj = ring[j][1];
+
+      const intersect = ((yi > lat) !== (yj > lat))
+        && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    if (inside) return true;
+  }
+  return false;
+}
+
+function pointInMultiPolygon(point: [number, number], multiPolygon: number[][][][]): boolean {
+  for (const polygon of multiPolygon) {
+    if (pointInPolygon(point, polygon)) return true;
+  }
+  return false;
+}
+
+function pointInGeometry(lat: number, lon: number, geometry: GeoJSON): boolean {
+  const point: [number, number] = [lon, lat];
+
+  if (geometry.type === 'Polygon') {
+    return pointInPolygon(point, geometry.coordinates);
   } else if (geometry.type === 'MultiPolygon') {
-    geometry.coordinates.forEach((polygon: any) => {
-      polygon.forEach((ring: any) => {
-        count += ring.length;
-      });
-    });
-  } else if (geometry.type === 'MultiLineString') {
-    geometry.coordinates.forEach((line: any) => {
-      count += line.length;
-    });
-  } else if (geometry.type === 'MultiPoint') {
-    return geometry.coordinates.length;
-  } else if (geometry.type === 'GeometryCollection' && geometry.geometries) {
-    geometry.geometries.forEach((geom: GeoJSON) => {
-      count += countGeometryPoints(geom);
-    });
+    return pointInMultiPolygon(point, geometry.coordinates);
   }
-  
-  return count;
+
+  return false;
 }
 
-async function getCountryBoundary(countryCode: string): Promise<BoundaryData | null> {
-  const cacheKey = countryCode.toLowerCase();
-  
-  if (GeocodeCache.boundary.has(cacheKey)) {
-    GeocodeCache.stats.boundary.hits++;
-    const cached = GeocodeCache.boundary.get(cacheKey)!;
-    console.log(`[BOUNDARY CACHE HIT] ${countryCode}: ${countGeometryPoints(cached.geojson)} points`);
-    return cached;
+// Recherche de pays
+async function findCountryAtPoint(lat: number, lon: number): Promise<CountryFeature | null> {
+  const cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+
+  // Vérifier le cache
+  if (GeocodeCache.pointLookup.has(cacheKey)) {
+    GeocodeCache.stats.lookup.hits++;
+    const countryCode = GeocodeCache.pointLookup.get(cacheKey)!;
+    console.log(`[LOOKUP CACHE HIT] ${cacheKey} → ${countryCode}`);
+
+    const countriesData = await loadCountriesGeoJSON();
+    const country = countriesData.features.find(f => 
+      f.properties['ISO3166-1-Alpha-2'] === countryCode
+    );
+    return country || null;
   }
-  
-  GeocodeCache.stats.boundary.misses++;
-  
-  const params = new URLSearchParams({
-    country: countryCode.toLowerCase(),
-    format: 'json',
-    polygon_geojson: '1',
-    limit: '1'
-  });
-  
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), CONFIG.BOUNDARY_TIMEOUT);
+
+  GeocodeCache.stats.lookup.misses++;
   const startTime = performance.now();
-  
-  try {
-    const response = await fetch(`${CONFIG.NOMINATIM_SEARCH_URL}?${params}`, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': CONFIG.USER_AGENT
-      }
-    });
-    
-    clearTimeout(timeoutId);
-    
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    
-    const data: BoundaryData[] = await response.json();
-    
-    if (data && data.length > 0 && data[0].geojson) {
-      const pointCount = countGeometryPoints(data[0].geojson);
+
+  // Charger les données
+  const countriesData = await loadCountriesGeoJSON();
+
+  // Rechercher le pays
+  for (const feature of countriesData.features) {
+    if (pointInGeometry(lat, lon, feature.geometry)) {
       const duration = (performance.now() - startTime).toFixed(2);
-      console.log(`[BOUNDARY FETCHED] ${countryCode}: ${pointCount} points (${data[0].geojson.type}) in ${duration}ms`);
-      GeocodeCache.boundary.set(cacheKey, data[0]);
-      return data[0];
+      const countryCode = feature.properties['ISO3166-1-Alpha-2'];
+      const countryName = feature.properties.name;
+      console.log(`[COUNTRY FOUND] ${cacheKey} → ${countryName} (${countryCode}) in ${duration}ms`);
+
+      // Mettre en cache
+      if (GeocodeCache.pointLookup.size >= CONFIG.MAX_CACHE_SIZE) {
+        const firstKey = GeocodeCache.pointLookup.keys().next().value;
+        if (firstKey) GeocodeCache.pointLookup.delete(firstKey);
+      }
+      GeocodeCache.pointLookup.set(cacheKey, countryCode);
+
+      return feature;
     }
-    
-    return null;
-  } catch (error) {
-    clearTimeout(timeoutId);
-    const duration = (performance.now() - startTime).toFixed(2);
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`[BOUNDARY ERROR] ${countryCode} (${duration}ms):`, errorMessage);
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Timeout');
-    }
-    throw error;
   }
+
+  const duration = (performance.now() - startTime).toFixed(2);
+  console.log(`[NO COUNTRY FOUND] ${cacheKey} in ${duration}ms`);
+  return null;
 }
 
+// Export principal
 export async function getCountryAtPoint(lat: number, lon: number): Promise<FeatureCollection> {
-  const geoData = await reverseGeocode(lat, lon);
-  
-  if (!geoData || !geoData.address) {
-    throw new Error('No location found');
+  const country = await findCountryAtPoint(lat, lon);
+
+  if (!country) {
+    throw new Error('No country found at this location');
   }
-  
-  const address = geoData.address;
-  const countryName = address.country;
-  const countryCode = address.country_code ? address.country_code.toUpperCase() : '';
-  
-  if (!countryCode || !countryName) {
-    throw new Error('No country found');
-  }
-  
-  const boundaryData = await getCountryBoundary(countryCode);
-  
-  if (!boundaryData || !boundaryData.geojson) {
-    throw new Error('No boundary data found');
-  }
-  
+
+  const countryName = country.properties.name;
+  const countryCode = country.properties['ISO3166-1-Alpha-2'];
+
   return {
     type: 'FeatureCollection',
     features: [{
@@ -262,18 +209,13 @@ export async function getCountryAtPoint(lat: number, lon: number): Promise<Featu
         country: countryName,
         country_code: countryCode,
         admin_level: 2,
-        osm_id: boundaryData.osm_id,
-        osm_type: boundaryData.osm_type,
-        display_name: boundaryData.display_name,
         _enhanced: {
           best_name: countryName,
           admin_type: 'Country',
-          found_via: 'nominatim_client'
+          found_via: 'local_geojson'
         }
       },
-      geometry: boundaryData.geojson
+      geometry: country.geometry
     }]
   };
 }
-
-export { GeocodeCache };

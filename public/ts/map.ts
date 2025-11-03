@@ -94,9 +94,29 @@ function initMap(): void {
   L.control.layers(basemaps, {}, {position: 'topright'}).addTo(map);
   
   map.on('click', handleMapClick);
+
+  map.on('movestart', handleMapMoveStart);
+  map.on('move', handleMapMove);
+  map.on('moveend', handleMapMoveEnd);
 }
 
-async function handleMapClick(e: LeafletMouseEvent): Promise<void> {
+async function handleMapMoveStart(e: LeafletMouseEvent): Promise<void> 
+{
+  console.log("Drag start")
+}
+
+async function handleMapMove(e: LeafletMouseEvent): Promise<void> 
+{
+  console.log("Draging")
+}
+
+async function handleMapMoveEnd(e: LeafletMouseEvent): Promise<void> 
+{
+  console.log("Drag finished")
+}
+
+async function handleMapClick(e: LeafletMouseEvent): Promise<void> 
+{
   if (currentMarker) map.removeLayer(currentMarker);
   if (currentCountryLayer) map.removeLayer(currentCountryLayer);
   
@@ -109,7 +129,8 @@ async function handleMapClick(e: LeafletMouseEvent): Promise<void> {
   try {
     const data = await getCountryAtPoint(lat, lng);
     
-    if (!data.features || data.features.length === 0) {
+    if (!data.features || data.features.length === 0) 
+  {
       showError('Aucun pays trouvé');
       currentMarker.bindTooltip("Aucun pays").openTooltip();
       return;

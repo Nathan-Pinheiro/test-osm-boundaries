@@ -1,11 +1,68 @@
-let map;
-let currentCountryLayer = null;
-let currentMarker = null;
+import { CONFIG } from './config.js';
+import { getCountryAtPoint, type FeatureProperties } from './geocoding.js';
+import { showLoading, showInfo, showError } from '../js/ui.js';
 
-function initMap() {
+declare const L: any;
+
+function speakText(text: string): void {
+  if ('speechSynthesis' in window) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'fr-FR';
+    window.speechSynthesis.speak(utterance);
+  }
+}
+
+interface LeafletLatLng {
+  lat: number;
+  lng: number;
+}
+
+interface LeafletMouseEvent {
+  latlng: LeafletLatLng;
+}
+
+let map: any;
+let currentCountryLayer: any = null;
+let currentMarker: any = null;
+
+function countGeometryPointsLocal(geometry: any): number {
+  if (!geometry) return 0;
+  
+  let count = 0;
+  
+  if (geometry.type === 'Point') {
+    return 1;
+  } else if (geometry.type === 'LineString') {
+    return geometry.coordinates.length;
+  } else if (geometry.type === 'Polygon') {
+    geometry.coordinates.forEach((ring: any) => {
+      count += ring.length;
+    });
+  } else if (geometry.type === 'MultiPolygon') {
+    geometry.coordinates.forEach((polygon: any) => {
+      polygon.forEach((ring: any) => {
+        count += ring.length;
+      });
+    });
+  } else if (geometry.type === 'MultiLineString') {
+    geometry.coordinates.forEach((line: any) => {
+      count += line.length;
+    });
+  } else if (geometry.type === 'MultiPoint') {
+    return geometry.coordinates.length;
+  } else if (geometry.type === 'GeometryCollection') {
+    geometry.geometries.forEach((geom: any) => {
+      count += countGeometryPointsLocal(geom);
+    });
+  }
+  
+  return count;
+}
+
+function initMap(): void {
   map = L.map('map').setView([46, 2], 5);
   
-  const basemaps = {
+  const basemaps: Record<string, any> = {
     'OpenMapTiles (Streets)': L.tileLayer('https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key={apikey}', {
       attribution: '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>',
       apikey: CONFIG.OPENMAPTILES_API_KEY,
@@ -39,7 +96,7 @@ function initMap() {
   map.on('click', handleMapClick);
 }
 
-async function handleMapClick(e) {
+async function handleMapClick(e: LeafletMouseEvent): Promise<void> {
   if (currentMarker) map.removeLayer(currentMarker);
   if (currentCountryLayer) map.removeLayer(currentCountryLayer);
   
@@ -66,6 +123,14 @@ async function handleMapClick(e) {
     const adminType = enhanced.admin_type || (props.admin_level ? `Niveau administratif ${props.admin_level}` : 'Lieu');
     const isCountry = adminType.includes('Country') || adminType.includes('Pays');
     
+    let totalPoints = 0;
+    data.features.forEach((f: any) => {
+      const points = countGeometryPointsLocal(f.geometry);
+      totalPoints += points;
+      console.log(`[FEATURE] ${f.properties.name || 'Unknown'}: ${points} points (${f.geometry.type})`);
+    });
+    console.log(`[TOTAL] Displaying ${data.features.length} feature(s) with ${totalPoints} total points`);
+    
     if (data.features.length > 1) {
       currentCountryLayer = L.geoJSON(data, {
         style: () => ({
@@ -76,7 +141,7 @@ async function handleMapClick(e) {
           dashArray: '0',
           smoothFactor: 1
         }),
-        onEachFeature: (feature, layer) => {
+        onEachFeature: (feature: any, layer: any) => {
           if (feature.properties) {
             const p = feature.properties;
             const e = p._enhanced || {};
@@ -101,7 +166,7 @@ async function handleMapClick(e) {
           dashArray: isCountry ? '0' : '5, 5',
           smoothFactor: 1
         },
-        onEachFeature: (feature, layer) => {
+        onEachFeature: (feature: any, layer: any) => {
           if (feature.properties) {
             const p = feature.properties;
             const e = p._enhanced || {};
@@ -133,7 +198,7 @@ async function handleMapClick(e) {
       }
     }
     
-    const details = [];
+    const details: string[] = [];
     if (props.country && props.country !== locationName) 
       details.push(`Pays: ${props.country}`);
     if (props.state && props.state !== locationName) 
@@ -158,7 +223,8 @@ async function handleMapClick(e) {
     
   } catch (error) {
     console.error('Error:', error);
-    showError(error.message);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    showError(errorMessage);
   }
 }
 

@@ -1,0 +1,14 @@
+{
+  "name": "test-frontieres",
+  "version": "2.0.0",
+  "description": "Pure client-side application to identify countries and display their boundaries",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "serve": "python -m http.server 8000 --directory public",
+    "start": "npm run build && npm run serve"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  }
+}

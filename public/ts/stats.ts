@@ -1,8 +1,12 @@
-let statsVisible = false;
+import { GeocodeCache } from './geocoding.js';
 
-function toggleStats() {
+let statsVisible: boolean = false;
+
+function toggleStats(): void {
   const panel = document.getElementById('stats-panel');
   const button = document.getElementById('stats-button');
+  
+  if (!panel || !button) return;
   
   if (statsVisible) {
     panel.style.display = 'none';
@@ -16,8 +20,9 @@ function toggleStats() {
   statsVisible = !statsVisible;
 }
 
-function fetchStats() {
+export function fetchStats(): void {
   const content = document.getElementById('stats-content');
+  if (!content) return;
   
   const geocodingHits = GeocodeCache.stats.geocoding.hits;
   const geocodingMisses = GeocodeCache.stats.geocoding.misses;
@@ -69,7 +74,18 @@ function fetchStats() {
   content.innerHTML = statsHTML;
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('stats-button').addEventListener('click', toggleStats);
-  document.getElementById('close-stats').addEventListener('click', toggleStats);
+// Rendre fetchStats accessible globalement pour le bouton HTML
+(window as any).fetchStats = fetchStats;
+
+document.addEventListener('DOMContentLoaded', (): void => {
+  const statsButton = document.getElementById('stats-button');
+  const closeStats = document.getElementById('close-stats');
+  
+  if (statsButton) {
+    statsButton.addEventListener('click', toggleStats);
+  }
+  
+  if (closeStats) {
+    closeStats.addEventListener('click', toggleStats);
+  }
 });

@@ -1,0 +1,15 @@
+/* You can add global styles to this file, and also import other style files */
+@import 'leaflet/dist/leaflet.css';
+
+:root {
+    --bg: #f7f9fc;
+    --nav: #0b5cff;
+    --text: #0b2233;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    font-family: system-ui, sans-serif;
+}
+

@@ -1,0 +1,6 @@
+<div id="map"></div>
+
+<div class="info-panel" *ngIf="infoVisible">
+  <h2>{{ locationName }}</h2>
+  <div *ngFor="let detail of details">{{ detail }}</div>
+</div>

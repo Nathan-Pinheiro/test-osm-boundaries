@@ -1,16 +1,10 @@
 import { CONFIG } from './config.js';
 import { getCountryAtPoint, type FeatureProperties } from './geocoding.js';
 import { showLoading, showInfo, showError } from '../js/ui.js';
+import { audioFeedback } from './audio.js';
+import { calculateDistanceToBoundary } from './geometry.js';
 
 declare const L: any;
-
-function speakText(text: string): void {
-  if ('speechSynthesis' in window) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'fr-FR';
-    window.speechSynthesis.speak(utterance);
-  }
-}
 
 interface LeafletLatLng {
   lat: number;
@@ -24,6 +18,12 @@ interface LeafletMouseEvent {
 let map: any;
 let currentCountryLayer: any = null;
 let currentMarker: any = null;
+
+// État pour gérer le drag
+let isDragging: boolean = false;
+let currentCountryCode: string = '';
+let currentCountryGeometry: any = null;
+let dragInterval: number | null = null;
 
 function countGeometryPointsLocal(geometry: any): number {
   if (!geometry) return 0;
@@ -60,7 +60,23 @@ function countGeometryPointsLocal(geometry: any): number {
 }
 
 function initMap(): void {
-  map = L.map('map').setView([46, 2], 5);
+  const initialView: [number, number] = [46, 2];
+  const initialZoom = 5;
+  
+  map = L.map('map', {
+    dragging: true,         // Active le drag pour capturer les événements
+    touchZoom: false,       // Désactive le zoom tactile
+    scrollWheelZoom: false, // Désactive le zoom à la molette
+    doubleClickZoom: false, // Désactive le zoom par double-clic
+    boxZoom: false,         // Désactive le zoom par sélection
+    keyboard: false,        // Désactive le contrôle au clavier
+    zoomControl: false      // Cache les boutons de zoom
+  }).setView(initialView, initialZoom);
+  
+  // Empêcher la carte de bouger visuellement
+  map.on('drag', function() {
+    map.panTo(initialView, { animate: false, duration: 0 });
+  });
   
   const basemaps: Record<string, any> = {
     'OpenMapTiles (Streets)': L.tileLayer('https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key={apikey}', {
@@ -95,24 +111,140 @@ function initMap(): void {
   
   map.on('click', handleMapClick);
 
-  map.on('movestart', handleMapMoveStart);
-  map.on('move', handleMapMove);
-  map.on('moveend', handleMapMoveEnd);
+  // Utiliser mousedown/mousemove/mouseup pour un meilleur contrôle du drag
+  map.on('mousedown', handleMouseDown);
+  map.on('mousemove', handleMouseMove);
+  map.on('mouseup', handleMouseUp);
+  map.on('mouseout', handleMouseUp); // Au cas où la souris sortirait de la carte
 }
 
-async function handleMapMoveStart(e: LeafletMouseEvent): Promise<void> 
-{
-  console.log("Drag start")
+async function handleMouseDown(e: LeafletMouseEvent): Promise<void> {
+  console.log("Mouse down - drag start");
+  isDragging = true;
+  
+  const lat = e.latlng.lat;
+  const lng = e.latlng.lng;
+  
+  try {
+    const data = await getCountryAtPoint(lat, lng);
+    if (data.features && data.features.length > 0) {
+      const country = data.features[0];
+      const countryName = country.properties.name || country.properties.country;
+      currentCountryCode = country.properties.country_code || '';
+      currentCountryGeometry = country.geometry;
+      
+      // Annoncer le pays immédiatement
+      audioFeedback.speakCountry(countryName);
+      console.log(`Starting drag in: ${countryName}`);
+      
+      // Démarrer le bip après un court délai pour laisser parler
+      setTimeout(() => {
+        if (isDragging) {
+          const initialDistance = calculateDistanceToBoundary(lat, lng, currentCountryGeometry);
+          const initialFrequency = audioFeedback.calculateFrequencyFromDistance(initialDistance, 50);
+          audioFeedback.startBeep(initialFrequency);
+          startDistanceTracking();
+          console.log(`Beep started at ${initialFrequency.toFixed(0)} Hz`);
+        }
+      }, 600);
+    }
+  } catch (error) {
+    console.error('Error getting country on drag start:', error);
+  }
 }
 
-async function handleMapMove(e: LeafletMouseEvent): Promise<void> 
-{
-  console.log("Draging")
+let lastMousePosition: LeafletLatLng | null = null;
+
+function startDistanceTracking(): void {
+  if (dragInterval) return;
+  
+  dragInterval = window.setInterval(() => {
+    if (!isDragging || !currentCountryGeometry || !lastMousePosition) return;
+    
+    const distance = calculateDistanceToBoundary(
+      lastMousePosition.lat,
+      lastMousePosition.lng,
+      currentCountryGeometry
+    );
+    
+    // Calculer la fréquence basée sur la distance
+    const frequency = audioFeedback.calculateFrequencyFromDistance(distance, 50);
+    audioFeedback.updateBeepFrequency(frequency);
+    
+    console.log(`Distance to boundary: ${distance.toFixed(2)} km, Frequency: ${frequency.toFixed(0)} Hz`);
+  }, 100); // Mise à jour toutes les 100ms
 }
 
-async function handleMapMoveEnd(e: LeafletMouseEvent): Promise<void> 
-{
-  console.log("Drag finished")
+function stopDistanceTracking(): void {
+  if (dragInterval) {
+    clearInterval(dragInterval);
+    dragInterval = null;
+  }
+}
+
+async function handleMouseMove(e: LeafletMouseEvent): Promise<void> {
+  if (!isDragging) return;
+  
+  lastMousePosition = e.latlng;
+  
+  // Vérifier si on a changé de pays (throttle pour ne pas surcharger)
+  const lat = e.latlng.lat;
+  const lng = e.latlng.lng;
+  
+  try {
+    const data = await getCountryAtPoint(lat, lng);
+    if (data.features && data.features.length > 0) {
+      const country = data.features[0];
+      const newCountryCode = country.properties.country_code || '';
+      
+      // Si on change de pays
+      if (newCountryCode !== currentCountryCode && currentCountryCode !== '') {
+        const countryName = country.properties.name || country.properties.country;
+        currentCountryCode = newCountryCode;
+        currentCountryGeometry = country.geometry;
+        
+        // Annoncer le nouveau pays
+        audioFeedback.speakCountry(countryName);
+        console.log(`Country changed to: ${countryName}`);
+      }
+    }
+  } catch (error) {
+    // Ignorer les erreurs pendant le drag (trop de requêtes)
+  }
+}
+
+async function handleMouseUp(e: LeafletMouseEvent): Promise<void> {
+  if (!isDragging) return;
+  
+  console.log("Mouse up - drag finished");
+  isDragging = false;
+  stopDistanceTracking();
+  audioFeedback.stopBeep();
+  
+  // Annoncer le pays final
+  const lat = e.latlng?.lat;
+  const lng = e.latlng?.lng;
+  
+  if (lat !== undefined && lng !== undefined) {
+    try {
+      const data = await getCountryAtPoint(lat, lng);
+      if (data.features && data.features.length > 0) {
+        const country = data.features[0];
+        const countryName = country.properties.name || country.properties.country;
+        
+        setTimeout(() => {
+          audioFeedback.speakCountry(countryName);
+        }, 300);
+      }
+    } catch (error) {
+      console.error('Error getting final country:', error);
+    }
+  }
+  
+  // Réinitialiser
+  currentCountryCode = '';
+  currentCountryGeometry = null;
+  lastMousePosition = null;
 }
 
 async function handleMapClick(e: LeafletMouseEvent): Promise<void> 
@@ -236,11 +368,8 @@ async function handleMapClick(e: LeafletMouseEvent): Promise<void>
     showInfo(locationName, details, lat, lng);
     currentMarker.bindTooltip(locationName).openTooltip();
     
-    let speechText = `Vous êtes dans ${locationName}`;
-    if (props.country && props.country !== locationName) {
-      speechText = `Vous êtes à ${locationName}, dans ${props.country}`;
-    }
-    speakText(speechText);
+    // Annoncer le pays avec le système audio
+    audioFeedback.speakCountry(locationName);
     
   } catch (error) {
     console.error('Error:', error);

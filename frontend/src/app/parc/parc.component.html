@@ -1,0 +1,11 @@
+<div id="map"></div>
+
+<div class="info-panel" *ngIf="infoVisible">
+  <h2>{{ locationName }}</h2>
+  <div *ngFor="let detail of details">{{ detail }}</div>
+</div>
+
+<div class="loading-overlay" *ngIf="false">
+  <div class="spinner"></div>
+  <p>Chargement...</p>
+</div>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Accessible Map Voice</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+    #map {
+      width: 100vw;
+      height: 100vh;
+    }
+    #status {
+      position: absolute;
+      left: -9999px;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 5px 10px;
+      border-radius: 5px;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="status" aria-live="polite"></div>
+  <div id="controls">
+    Detail:
+    <select id="detailLevel">
+      <option value="full">Full</option>
+      <option value="city">City</option>
+      <option value="state">State</option>
+      <option value="country">Country</option>
+    </select>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([48.8584, 2.2945], 15); // Eiffel Tower
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const detailSelect = document.getElementById('detailLevel');
+
+    function speak(text) {
+      if ('speechSynthesis' in window) {
+        const msg = new SpeechSynthesisUtterance(text);
+        msg.rate = 1;
+        msg.pitch = 1;
+        msg.volume = 1;
+        speechSynthesis.cancel();
+        speechSynthesis.speak(msg);
+      } else {
+        alert(text);
+      }
+    }
+
+    function updateStatus(text) {
+      document.getElementById('status').textContent = text;
+    }
+
+    async function reverseGeocode(lat, lon, level = "full") {
+      updateStatus('Fetching location...');
+      speak('Recherche...');
+      try {
+        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`;
+        const res = await fetch(url);
+        const json = await res.json();
+        const addr = json.address || {};
+
+        switch (level) {
+          case "city":
+            return addr.city || addr.town || addr.village || "City not found";
+          case "state":
+            return addr.state || "State not found";
+          case "country":
+            return addr.country || "Country not found";
+          default:
+            return json.display_name || "Location not found";
+        }
+      } catch (err) {
+        return "Error fetching location";
+      }
+    }
+
+    async function handleLocation(lat, lng) {
+      const level = detailSelect.value;
+      const place = await reverseGeocode(lat, lng, level);
+      speak(place);
+      updateStatus(place);
+    }
+
+    // Mouse click: speak clicked location
+    map.on('click', (e) => handleLocation(e.latlng.lat, e.latlng.lng));
+
+    // Keyboard (Enter): speak map center location
+    document.addEventListener('keydown', async (e) => {
+      if (e.key === 'Enter') {
+        const center = map.getCenter();
+        handleLocation(center.lat, center.lng);
+      }
+    });
+  </script>
+</body>
+</html>

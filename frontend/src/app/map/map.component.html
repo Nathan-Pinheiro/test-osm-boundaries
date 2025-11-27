@@ -1,15 +1,12 @@
 <div id="map"></div>
 
-<div class="info" *ngIf="infoVisible">
-  <div *ngIf="loading">
-    Identification du pays <div class="loading"></div>
-  </div>
-  <div *ngIf="error">
-    Erreur: {{ errorMessage }}
-  </div>
-  <div *ngIf="!loading && !error && locationName">
-    <div class="country">{{ locationName }}</div>
-    <div *ngFor="let detail of details">{{ detail }}</div>
-    <div><small>Lat: {{ lat | number:'1.4-4' }}, Lon: {{ lng | number:'1.4-4' }}</small></div>
-  </div>
-</div>
+<app-map-info
+  [visible]="infoState.visible"
+  [loading]="infoState.loading"
+  [error]="infoState.error"
+  [errorMessage]="infoState.errorMessage"
+  [locationName]="infoState.locationName"
+  [details]="infoState.details"
+  [lat]="infoState.lat"
+  [lng]="infoState.lng"
+></app-map-info>

@@ -1,21 +1,19 @@
-import { Component, AfterViewInit, OnDestroy, Inject, PLATFORM_ID } from '@angular/core';
+import { Component, AfterViewInit, OnDestroy, Inject, PLATFORM_ID, NgZone } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import * as L from 'leaflet';
-import Hammer from 'hammerjs';
+import { InteractionService } from '../services/interaction.service';
 import { ConfigService } from '../services/config.service';
 import { GeocodingService, FeatureCollection } from '../services/geocoding.service';
 import { AudioService } from '../services/audio.service';
 import { GeometryService } from '../services/geometry.service';
-
-interface LeafletMouseEvent {
-  latlng: L.LatLng;
-  originalEvent: MouseEvent;
-}
+import { SpatialAudioService } from '../services/spatial-audio.service';
+import { MapInfoComponent } from './components/map-info/map-info.component';
+import { MapDragHandler } from './handlers/map-drag-handler';
 
 @Component({
   selector: 'app-map',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, MapInfoComponent],
   templateUrl: './map.component.html',
   styleUrls: ['./map.component.css']
 })
@@ -23,35 +21,49 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private map: L.Map | undefined;
   private currentCountryLayer: L.Layer | null = null;
   private currentMarker: L.Marker | null = null;
-  private hammer: HammerManager | null = null;
-
-  // State for drag
-  private isDragging: boolean = false;
-  private currentCountryCode: string = '';
-  private currentCountryGeometry: any = null;
-  private dragInterval: any = null;
-  private lastMousePosition: L.LatLng | null = null;
+  private dragHandler: MapDragHandler | null = null;
 
   // UI State
-  infoVisible: boolean = false;
-  loading: boolean = false;
-  error: boolean = false;
-  errorMessage: string = '';
-  locationName: string = '';
-  details: string[] = [];
-  lat: number = 0;
-  lng: number = 0;
+  infoState = {
+    visible: false,
+    loading: false,
+    error: false,
+    errorMessage: '',
+    locationName: '',
+    details: [] as string[],
+    lat: 0,
+    lng: 0
+  };
 
   constructor(
     private configService: ConfigService,
     private geocodingService: GeocodingService,
     private audioService: AudioService,
     private geometryService: GeometryService,
+    private spatialAudioService: SpatialAudioService,
+    private interactionService: InteractionService,
+    private ngZone: NgZone,
     @Inject(PLATFORM_ID) private platformId: Object
   ) {}
 
   ngAfterViewInit(): void {
     if (isPlatformBrowser(this.platformId)) {
+      // Fix Leaflet's default icon paths
+      const iconRetinaUrl = '/marker-icon-2x.png';
+      const iconUrl = '/marker-icon.png';
+      const shadowUrl = '/marker-shadow.png';
+      const iconDefault = L.icon({
+        iconRetinaUrl,
+        iconUrl,
+        shadowUrl,
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        tooltipAnchor: [16, -28],
+        shadowSize: [41, 41]
+      });
+      L.Marker.prototype.options.icon = iconDefault;
+      
       this.initMap();
     }
   }
@@ -60,10 +72,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.map) {
       this.map.remove();
     }
-    if (this.hammer) {
-      this.hammer.destroy();
+    this.interactionService.destroy();
+    if (this.dragHandler) {
+      this.dragHandler.destroy();
     }
-    this.stopDistanceTracking();
   }
 
   private initMap(): void {
@@ -71,7 +83,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const initialZoom = 5;
     
     this.map = L.map('map', {
-      dragging: false,        // Disable Leaflet dragging
+      dragging: false,
       touchZoom: false,
       scrollWheelZoom: false,
       doubleClickZoom: false,
@@ -79,20 +91,71 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       keyboard: false,
       zoomControl: false
     }).setView(initialView, initialZoom);
+
+    this.dragHandler = new MapDragHandler(
+      this.geocodingService,
+      this.audioService,
+      this.geometryService,
+      this.spatialAudioService,
+      (point) => this.getLatLngFromPoint(point)
+    );
     
-    // Initialize Hammer
     const mapContainer = document.getElementById('map');
     if (mapContainer) {
-      this.hammer = new Hammer(mapContainer);
-      
-      // Configure Pan to detect all directions
-      this.hammer.get('pan').set({ direction: Hammer.DIRECTION_ALL });
-      
-      // Bind events
-      this.hammer.on('tap', (e) => this.handleTap(e));
-      this.hammer.on('panstart', (e) => this.handlePanStart(e));
-      this.hammer.on('panmove', (e) => this.handlePanMove(e));
-      this.hammer.on('panend', (e) => this.handlePanEnd(e));
+      this.interactionService.init(mapContainer, {
+        onTap: (center) => {
+          this.ngZone.run(() => {
+            this.handleTap(center);
+          });
+        },
+        onDown: (center, fingers) => {
+          this.ngZone.run(() => {
+            if (fingers === 1 && this.dragHandler) this.dragHandler.handlePanStart(center);
+          });
+        },
+        onMove: (center, fingers) => {
+          this.ngZone.run(() => {
+            if (fingers === 1 && this.dragHandler) this.dragHandler.handlePanMove(center);
+          });
+        },
+        onUp: (center, fingers) => {
+          this.ngZone.run(() => {
+            if (fingers === 1 && this.dragHandler) this.dragHandler.handlePanEnd(center);
+          });
+        },
+        onDoubleTap: (center) => {
+          this.ngZone.run(() => {
+            console.log('Double tap');
+            if (this.map) this.map.zoomIn();
+          });
+        },
+        onTwoFingerTap: (center) => {
+          this.ngZone.run(() => {
+            console.log('Two finger tap');
+            if (this.map) this.map.zoomOut();
+          });
+        },
+        onThreeFingerDoubleTap: (center) => {
+          this.ngZone.run(() => {
+            console.log('Three finger double tap');
+          });
+        },
+        onThreeFingerTap: (center) => {
+          this.ngZone.run(() => {
+            console.log('Three finger tap');
+          });
+        },
+        onFourFingerTap: (center) => {
+          this.ngZone.run(() => {
+            console.log('Four finger tap');
+          });
+        },
+        onPinch: (delta, scale, center) => {
+          this.ngZone.run(() => {
+            console.log('Pinch delta : ' + delta + ', scale : ' + scale + ', center : ' + center);
+          });
+        }
+      });
     }
     
     const basemaps: Record<string, L.TileLayer> = {
@@ -120,159 +183,34 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       })
     };
     
-    if (this.configService.config.OPENMAPTILES_API_KEY) {
-      basemaps['OpenMapTiles (Streets)'].addTo(this.map);
-    } else {
-      basemaps['OpenStreetMap'].addTo(this.map);
-    }
+    if (this.configService.config.OPENMAPTILES_API_KEY) basemaps['OpenMapTiles (Streets)'].addTo(this.map);
+    else basemaps['OpenStreetMap'].addTo(this.map);
     
     L.control.layers(basemaps, {}, {position: 'topright'}).addTo(this.map);
   }
 
-  private getLatLngFromHammerEvent(e: HammerInput): L.LatLng | null {
+  private getLatLngFromPoint(point: {x: number, y: number}): L.LatLng | null {
     if (!this.map) return null;
     
     const container = this.map.getContainer();
     const rect = container.getBoundingClientRect();
     
     // Calculate position relative to map container
-    const x = e.center.x - rect.left;
-    const y = e.center.y - rect.top;
+    const x = point.x - rect.left;
+    const y = point.y - rect.top;
     
     return this.map.containerPointToLatLng(L.point(x, y));
   }
 
-  private async handlePanStart(e: HammerInput): Promise<void> {
-    console.log("Pan start");
-    this.isDragging = true;
-    
-    const latlng = this.getLatLngFromHammerEvent(e);
-    if (!latlng) return;
-    
-    const lat = latlng.lat;
-    const lng = latlng.lng;
-    
-    try {
-      const data = await this.geocodingService.getCountryAtPoint(lat, lng);
-      if (data.features && data.features.length > 0) {
-        const country = data.features[0];
-        const countryName = country.properties.name || country.properties.country;
-        this.currentCountryCode = country.properties.country_code || '';
-        this.currentCountryGeometry = country.geometry;
-        
-        this.audioService.speakCountry(countryName);
-        console.log(`Starting drag in: ${countryName}`);
-        
-        setTimeout(() => {
-          if (this.isDragging) {
-            const initialDistance = this.geometryService.calculateDistanceToBoundary(lat, lng, this.currentCountryGeometry);
-            const initialFrequency = this.audioService.calculateFrequencyFromDistance(initialDistance, 50);
-            this.audioService.startBeep(initialFrequency);
-            this.startDistanceTracking();
-            console.log(`Beep started at ${initialFrequency.toFixed(0)} Hz`);
-          }
-        }, 600);
-      }
-    } catch (error) {
-      console.error('Error getting country on drag start:', error);
-    }
-  }
 
-  private startDistanceTracking(): void {
-    if (this.dragInterval) return;
-    
-    this.dragInterval = window.setInterval(() => {
-      if (!this.isDragging || !this.currentCountryGeometry || !this.lastMousePosition) return;
-      
-      const distance = this.geometryService.calculateDistanceToBoundary(
-        this.lastMousePosition.lat,
-        this.lastMousePosition.lng,
-        this.currentCountryGeometry
-      );
-      
-      const frequency = this.audioService.calculateFrequencyFromDistance(distance, 50);
-      this.audioService.updateBeepFrequency(frequency);
-      
-      console.log(`Distance to boundary: ${distance.toFixed(2)} km, Frequency: ${frequency.toFixed(0)} Hz`);
-    }, 100);
-  }
 
-  private stopDistanceTracking(): void {
-    if (this.dragInterval) {
-      clearInterval(this.dragInterval);
-      this.dragInterval = null;
-    }
-  }
-
-  private async handlePanMove(e: HammerInput): Promise<void> {
-    if (!this.isDragging) return;
-    
-    const latlng = this.getLatLngFromHammerEvent(e);
-    if (!latlng) return;
-    
-    this.lastMousePosition = latlng;
-    
-    const lat = latlng.lat;
-    const lng = latlng.lng;
-    
-    try {
-      const data = await this.geocodingService.getCountryAtPoint(lat, lng);
-      if (data.features && data.features.length > 0) {
-        const country = data.features[0];
-        const newCountryCode = country.properties.country_code || '';
-        
-        if (newCountryCode !== this.currentCountryCode && this.currentCountryCode !== '') {
-          const countryName = country.properties.name || country.properties.country;
-          this.currentCountryCode = newCountryCode;
-          this.currentCountryGeometry = country.geometry;
-          
-          this.audioService.speakCountry(countryName);
-          console.log(`Country changed to: ${countryName}`);
-        }
-      }
-    } catch (error) {
-      // Ignore errors during drag
-    }
-  }
-
-  private async handlePanEnd(e: HammerInput): Promise<void> {
-    if (!this.isDragging) return;
-    
-    console.log("Pan end");
-    this.isDragging = false;
-    this.stopDistanceTracking();
-    this.audioService.stopBeep();
-    
-    const latlng = this.getLatLngFromHammerEvent(e);
-    
-    if (latlng) {
-      try {
-        const data = await this.geocodingService.getCountryAtPoint(latlng.lat, latlng.lng);
-        if (data.features && data.features.length > 0) {
-          const country = data.features[0];
-          const countryName = country.properties.name || country.properties.country;
-          
-          setTimeout(() => {
-            this.audioService.speakCountry(countryName);
-          }, 300);
-        }
-      } catch (error) {
-        console.error('Error getting final country:', error);
-      }
-    }
-    
-    this.currentCountryCode = '';
-    this.currentCountryGeometry = null;
-    this.lastMousePosition = null;
-  }
-
-  private async handleTap(e: HammerInput): Promise<void> {
+  private async handleTap(point: {x: number, y: number}): Promise<void> {
     if (!this.map) return;
 
     if (this.currentMarker) this.map.removeLayer(this.currentMarker);
     if (this.currentCountryLayer) this.map.removeLayer(this.currentCountryLayer);
     
-    const latlng = this.getLatLngFromHammerEvent(e);
+    const latlng = this.getLatLngFromPoint(point);
     if (!latlng) return;
     
     const lat = latlng.lat;
@@ -392,25 +330,25 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   private showLoading(): void {
-    this.infoVisible = true;
-    this.loading = true;
-    this.error = false;
+    this.infoState.visible = true;
+    this.infoState.loading = true;
+    this.infoState.error = false;
   }
 
   private showInfo(locationName: string, details: string[], lat: number, lng: number): void {
-    this.infoVisible = true;
-    this.loading = false;
-    this.error = false;
-    this.locationName = locationName;
-    this.details = details;
-    this.lat = lat;
-    this.lng = lng;
+    this.infoState.visible = true;
+    this.infoState.loading = false;
+    this.infoState.error = false;
+    this.infoState.locationName = locationName;
+    this.infoState.details = details;
+    this.infoState.lat = lat;
+    this.infoState.lng = lng;
   }
 
   private showError(message: string): void {
-    this.infoVisible = true;
-    this.loading = false;
-    this.error = true;
-    this.errorMessage = message;
+    this.infoState.visible = true;
+    this.infoState.loading = false;
+    this.infoState.error = true;
+    this.infoState.errorMessage = message;
   }
 }

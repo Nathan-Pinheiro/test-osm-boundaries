@@ -43,7 +43,7 @@ export class AudioService {
     this.oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
     
     // Volume modéré
-    this.gainNode.gain.setValueAtTime(0.15, this.audioContext.currentTime);
+    this.gainNode.gain.setValueAtTime(0.05, this.audioContext.currentTime);
 
     this.oscillator.connect(this.gainNode);
     this.gainNode.connect(this.audioContext.destination);
@@ -125,7 +125,7 @@ export class AudioService {
     
     // Plage de fréquences : 200 Hz (loin) à 1000 Hz (proche)
     const minFreq = 200; // Hz - loin de la frontière
-    const maxFreq = 1000; // Hz - proche de la frontière
+    const maxFreq = 900; // Hz - proche de la frontière
     
     // Inverser : plus on est proche (distance faible), plus la fréquence est haute
     const frequency = minFreq + (maxFreq - minFreq) * (1 - normalizedDistance);

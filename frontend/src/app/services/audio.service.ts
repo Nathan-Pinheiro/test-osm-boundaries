@@ -133,6 +133,17 @@ export class AudioService {
     return frequency;
   }
 
+  /**
+   * Lazy generalisation of calculateFrequencyFromDistance
+   * @param value the value to convert
+   * @param minValue the minimum value on the considered scale
+   * @param maxValue the maximum value on the considered scale
+   * @returns Frequency in Hz (higher value = higher frequency)
+   */
+  calculateFrequencyFromValue(value: number, minValue: number, maxValue: number): number {
+    return this.calculateFrequencyFromDistance(value - minValue, maxValue - minValue);
+  }
+
   isCurrentlyBeeping(): boolean {
     return this.isBeeping;
   }

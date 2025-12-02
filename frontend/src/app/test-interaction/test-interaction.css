@@ -1,0 +1,11 @@
+.test-zone{
+    width: 90%;
+    height: 90vh;
+    background-color: #df5b5b;
+    border-radius: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    user-select: none;
+    margin: 5vh auto;
+}

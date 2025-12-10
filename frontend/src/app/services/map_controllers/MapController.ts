@@ -1,6 +1,6 @@
 import * as L from 'leaflet';
 
-class MapController {
+export class MapController {
     /**
      * A template used by map "controllers", aka. classes that provide a specific
      * feature to the map by updating layers and/or handling given user interactions

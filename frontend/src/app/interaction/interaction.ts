@@ -4,10 +4,10 @@ import { InteractionEvent, InteractionService, InteractionType } from '../servic
 @Component({
   selector: 'app-test-interaction',
   imports: [],
-  templateUrl: './test-interaction.html',
-  styleUrl: './test-interaction.css',
+  templateUrl: './interaction.html',
+  styleUrl: './interaction.css',
 })
-export class TestInteraction implements AfterViewInit{
+export class Interaction implements AfterViewInit{
   currentinte: string = 'rien';
 
   @ViewChild('zone', {static: false}) zoneRef!: ElementRef;

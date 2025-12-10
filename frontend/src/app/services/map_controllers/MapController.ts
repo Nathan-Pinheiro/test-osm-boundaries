@@ -22,11 +22,15 @@ export class MapController {
     }
 
     //[ Interactions methods ]//
-    onSimpleClick(): void {}
-    onLongClick(): void {}
-    onDoubleClick(): void {}
-    onSimplePanMove(): void {}
+    onSimpleClick(lng: number, lat: number): void {}
+    onLongClick(lng: number, lat: number): void {}
+    onDoubleClick(lng: number, lat: number): void {}
+    onSimplePanStart(lng: number, lat: number): void {}
+    onSimplePanMove(lng: number, lat: number): void {}
+    onSimplePanStop(lng: number, lat: number): void {}
+    onDoublePanStart(): void {}
     onDoublePanMove(): void {}
+    onDoublePanStop(): void {}
     onPinch(): void {}
     onSwipe(): void {}
 }

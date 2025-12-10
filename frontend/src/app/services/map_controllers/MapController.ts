@@ -25,8 +25,12 @@ export class MapController {
     onSimpleClick(lon: number, lat: number): void {}
     onLongClick(lon: number, lat: number): void {}
     onDoubleClick(lon: number, lat: number): void {}
+    onSimplePanStart(lon: number, lat: number): void {}
     onSimplePanMove(lon: number, lat: number): void {}
+    onSimplePanStop(): void {}
+    onDoublePanStart(): void {}
     onDoublePanMove(): void {}
+    onDoublePanStop(): void {}
     onPinch(): void {}
     onSwipe(): void {}
 }

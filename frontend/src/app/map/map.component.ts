@@ -13,10 +13,11 @@ import * as L from 'leaflet';
   styleUrls: ['./map.component.css']
 })
 
-export class TestMapComponent 
+export class MapComponent 
 {
   @Input() mapStyleLink: string = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   @Input() controllerClasses: (new (map: L.Map) => MapController)[] = [];
+  @Input() controllers: ((map: L.Map) => MapController)[] = [];
 
   @Input() maxZoom: number = 18;
   @Input() minZoom: number = 3;
@@ -53,13 +54,21 @@ export class TestMapComponent
       minZoom: this.minZoom,
     }).addTo(this.map);
 
-    this.mapControllers = this.controllerClasses.map(ControllerClass => new ControllerClass(this.map));
+    // Initialize controllers from classes or factory functions
+    const controllersFromClasses = this.controllerClasses.map(ControllerClass => new ControllerClass(this.map));
+    const controllersFromFactories = this.controllers.map(factory => factory(this.map));
+    this.mapControllers = [...controllersFromClasses, ...controllersFromFactories];
 
     const mapElement = this.mapElement.nativeElement;
 
-    this.interactionService.observe(mapElement, (event) => {
-      console.log('Interaction event:', event);
-    });
+    this.interactionService.observe(mapElement, 
+      (event) => { this.handleInteractions(event); },
+      (x: number, y: number) => {
+          const rect = this.map.getContainer().getBoundingClientRect();
+          const point = L.point(x - rect.left, y - rect.top);
+          return this.map.containerPointToLatLng(point);
+      }
+    );
   }
 
   ngOnDestroy(): void {
@@ -78,23 +87,27 @@ export class TestMapComponent
     else if (evt.type == InteractionType.PanMove)
     {
       if (evt.currentPos)
-        for(const controller of this.mapControllers) controller.onSimplePanMove();
+        for(const controller of this.mapControllers) controller.onSimplePanMove(evt.currentPos.x, evt.currentPos.y);
     }
     else if (evt.type == InteractionType.PointerSingleTap)
     {
-      for(const controller of this.mapControllers) controller.onSimpleClick();
+      if (evt.startPos)
+        for(const controller of this.mapControllers) controller.onSimpleClick(evt.startPos.x, evt.startPos.y);
     }
     else if (evt.type == InteractionType.PointerDoubleTap)
     {
-      for(const controller of this.mapControllers) controller.onDoubleClick();
+      if (evt.startPos)
+        for(const controller of this.mapControllers) controller.onDoubleClick(evt.startPos.x, evt.startPos.y);
     }
     else if (evt.type == InteractionType.PointerPress)
     {
-      for(const controller of this.mapControllers) controller.onLongClick();
+      if (evt.startPos)
+        for(const controller of this.mapControllers) controller.onLongClick(evt.startPos.x, evt.startPos.y);
     }
     else if (evt.type != InteractionType.PointerDown && evt.type != InteractionType.PanStart)
     {
-      for(const controller of this.mapControllers) controller.onLongClick();
+      if (evt.startPos)
+        for(const controller of this.mapControllers) controller.onLongClick(evt.startPos.x, evt.startPos.y);
     }
   }
 }

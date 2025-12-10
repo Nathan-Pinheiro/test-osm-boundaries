@@ -1,6 +1,6 @@
 import * as L from 'leaflet';
 
-class MapController {
+export class MapController {
     /**
      * A template used by map "controllers", aka. classes that provide a specific
      * feature to the map by updating layers and/or handling given user interactions
@@ -22,10 +22,10 @@ class MapController {
     }
 
     //[ Interactions methods ]//
-    onSimpleClick(): void {}
-    onLongClick(): void {}
-    onDoubleClick(): void {}
-    onSimplePanMove(): void {}
+    onSimpleClick(lon: number, lat: number): void {}
+    onLongClick(lon: number, lat: number): void {}
+    onDoubleClick(lon: number, lat: number): void {}
+    onSimplePanMove(lon: number, lat: number): void {}
     onDoublePanMove(): void {}
     onPinch(): void {}
     onSwipe(): void {}

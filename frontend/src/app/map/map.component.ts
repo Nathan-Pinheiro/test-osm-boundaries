@@ -54,7 +54,6 @@ export class MapComponent
       minZoom: this.minZoom,
     }).addTo(this.map);
 
-    // Initialize controllers from classes or factory functions
     const controllersFromClasses = this.controllerClasses.map(ControllerClass => new ControllerClass(this.map));
     const controllersFromFactories = this.controllers.map(factory => factory(this.map));
     this.mapControllers = [...controllersFromClasses, ...controllersFromFactories];
@@ -84,6 +83,11 @@ export class MapComponent
     {
       for(const controller of this.mapControllers) controller.onSwipe();
     }
+    else if (evt.type == InteractionType.PanStart)
+    {
+      if (evt.startPos)
+        for(const controller of this.mapControllers) controller.onSimplePanStart(evt.startPos.x, evt.startPos.y);
+    }
     else if (evt.type == InteractionType.PanMove)
     {
       if (evt.currentPos)
@@ -104,7 +108,7 @@ export class MapComponent
       if (evt.startPos)
         for(const controller of this.mapControllers) controller.onLongClick(evt.startPos.x, evt.startPos.y);
     }
-    else if (evt.type != InteractionType.PointerDown && evt.type != InteractionType.PanStart)
+    else if (evt.type != InteractionType.PointerDown)
     {
       if (evt.startPos)
         for(const controller of this.mapControllers) controller.onLongClick(evt.startPos.x, evt.startPos.y);

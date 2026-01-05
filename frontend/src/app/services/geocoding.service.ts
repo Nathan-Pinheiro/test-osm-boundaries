@@ -26,7 +26,6 @@ interface CountriesGeoJSON {
   features: CountryFeature[];
 }
 
-// Types pour l'export
 export interface FeatureProperties {
   name: string;
   country: string;
@@ -53,7 +52,6 @@ export interface FeatureCollection {
   features: Feature[];
 }
 
-// Cache
 interface CacheStats {
   hits: number;
   misses: number;
@@ -86,11 +84,11 @@ export class GeocodingService {
     private configService: ConfigService
   ) {}
 
-  // Chargement du GeoJSON
-  private async loadCountriesGeoJSON(): Promise<CountriesGeoJSON> {
+  private async loadCountriesGeoJSON(): Promise<CountriesGeoJSON> 
+  {
     if (this.cache.countriesData) {
       this.cache.stats.geojsonLoad.hits++;
-      console.log('[GEOJSON CACHE HIT] Countries data already loaded');
+      // console.log('[GEOJSON CACHE HIT] Countries data already loaded');
       return this.cache.countriesData;
     }
 
@@ -105,19 +103,18 @@ export class GeocodingService {
       const data = await firstValueFrom(this.http.get<CountriesGeoJSON>('data/countries.geojson'));
       
       const duration = (performance.now() - startTime).toFixed(2);
-      console.log(`[GEOJSON LOADED] ${data.features.length} countries in ${duration}ms`);
+      // console.log(`[GEOJSON LOADED] ${data.features.length} countries in ${duration}ms`);
 
       this.cache.countriesData = data;
       return data;
     } catch (error) {
       const duration = (performance.now() - startTime).toFixed(2);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[GEOJSON ERROR] Failed to load countries (${duration}ms):`, errorMessage);
+      // console.error(`[GEOJSON ERROR] Failed to load countries (${duration}ms):`, errorMessage);
       throw error;
     }
   }
 
-  // Algorithme Point-in-Polygon
   private pointInPolygon(point: [number, number], polygon: number[][][]): boolean {
     const [lon, lat] = point;
 
@@ -163,7 +160,7 @@ export class GeocodingService {
     if (this.cache.pointLookup.has(cacheKey)) {
       this.cache.stats.lookup.hits++;
       const countryCode = this.cache.pointLookup.get(cacheKey)!;
-      console.log(`[LOOKUP CACHE HIT] ${cacheKey} → ${countryCode}`);
+      // console.log(`[LOOKUP CACHE HIT] ${cacheKey} → ${countryCode}`);
 
       const countriesData = await this.loadCountriesGeoJSON();
       const country = countriesData.features.find(f => 
@@ -184,7 +181,7 @@ export class GeocodingService {
         const duration = (performance.now() - startTime).toFixed(2);
         const countryCode = feature.properties['ISO3166-1-Alpha-2'];
         const countryName = feature.properties.name;
-        console.log(`[COUNTRY FOUND] ${cacheKey} → ${countryName} (${countryCode}) in ${duration}ms`);
+        // console.log(`[COUNTRY FOUND] ${cacheKey} → ${countryName} (${countryCode}) in ${duration}ms`);
 
         // Mettre en cache
         if (this.cache.pointLookup.size >= this.configService.config.MAX_CACHE_SIZE) {
@@ -198,7 +195,7 @@ export class GeocodingService {
     }
 
     const duration = (performance.now() - startTime).toFixed(2);
-    console.log(`[NO COUNTRY FOUND] ${cacheKey} in ${duration}ms`);
+    // console.log(`[NO COUNTRY FOUND] ${cacheKey} in ${duration}ms`);
     return null;
   }
 
@@ -231,5 +228,36 @@ export class GeocodingService {
         geometry: country.geometry
       }]
     };
+  }
+
+  /**
+   * Get the borders (geometry) of a country at a specific point
+   */
+  async getCountryBordersAtPoint(lat: number, lon: number): Promise<GeoJSON | null> {
+    const country = await this.findCountryAtPoint(lat, lon);
+    return country ? country.geometry : null;
+  }
+
+  /**
+   * Get the borders (geometry) of a country by its name
+   */
+  async getCountryBordersByName(countryName: string): Promise<GeoJSON | null> {
+    const countriesData = await this.loadCountriesGeoJSON();
+    const country = countriesData.features.find(f => 
+      f.properties.name.toLowerCase() === countryName.toLowerCase()
+    );
+    return country ? country.geometry : null;
+  }
+
+  /**
+   * Get the borders (geometry) of a country by its ISO code
+   */
+  async getCountryBordersByCode(countryCode: string): Promise<GeoJSON | null> {
+    const countriesData = await this.loadCountriesGeoJSON();
+    const country = countriesData.features.find(f => 
+      f.properties['ISO3166-1-Alpha-2'] === countryCode.toUpperCase() ||
+      f.properties['ISO3166-1-Alpha-3'] === countryCode.toUpperCase()
+    );
+    return country ? country.geometry : null;
   }
 }

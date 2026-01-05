@@ -5,9 +5,11 @@ import { ParcComponent } from './parc/parc.component';
 import { RandoComponent } from './rando/rando.component';
 import { Interaction } from './interaction/interaction';
 
+import { BorderTestPage } from './border-test/border-test.component';
+
 export const routes: Routes = [
   { path: '', component: MenuComponent },
-  { path: 'borders', component: MapPage },
+  { path: 'borders', component: BorderTestPage },
   { path: 'border', redirectTo: 'borders', pathMatch: 'full' },
   { path: 'parc', component: ParcComponent },
   { path: 'rando', component: RandoComponent },

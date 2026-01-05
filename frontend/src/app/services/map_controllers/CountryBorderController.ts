@@ -49,7 +49,7 @@ export class CountryBorderController extends MapController {
         // console.log('[TestingController] Double Click detected');
     }
     
-    override async onSimplePanStart(lng: number, lat: number): Promise<void> 
+    override async onPanStart(lng: number, lat: number): Promise<void> 
     {
         const countryFeature = await this.geocodingService.getCountryAtPoint(lng, lat);
         const countryName = countryFeature.features[0]?.properties?.name || 'Unknown';
@@ -104,7 +104,7 @@ export class CountryBorderController extends MapController {
         }
     }
 
-    override onSimplePanStop(lng: number, lat: number): void 
+    override onPanStop(lng: number, lat: number): void 
     {
         this.audioService.stopBeep();
     }
@@ -112,15 +112,5 @@ export class CountryBorderController extends MapController {
     override onDoublePanMove(): void 
     {
         console.log('[TestingController] Double Pan Move detected');
-    }
-    
-    override onPinch(): void 
-    {
-        console.log('[TestingController] Pinch detected');
-    }
-    
-    override onSwipe(): void 
-    {
-        console.log('[TestingController] Swipe detected');
     }
 }

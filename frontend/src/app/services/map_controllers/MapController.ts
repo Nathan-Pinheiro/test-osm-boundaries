@@ -22,15 +22,28 @@ export class MapController {
     }
 
     //[ Interactions methods ]//
-    onSimpleClick(lng: number, lat: number): void {}
-    onLongClick(lng: number, lat: number): void {}
-    onDoubleClick(lng: number, lat: number): void {}
-    onSimplePanStart(lng: number, lat: number): void {}
-    onSimplePanMove(lng: number, lat: number): void {}
-    onSimplePanStop(lng: number, lat: number): void {}
-    onDoublePanStart(): void {}
-    onDoublePanMove(): void {}
-    onDoublePanStop(): void {}
-    onPinch(): void {}
-    onSwipe(): void {}
+
+    onPointerDown(lng: number, lat: number): void {}    // pointer-down
+    onPointerUp(lng: number, lat: number): void {}      // pointer-up
+
+    onLongClick(lng: number, lat: number): void {}      // pointer-press
+    onSimpleClick(lng: number, lat: number): void {}    // pointer-single-tap
+    onDoubleClick(lng: number, lat: number): void {}    // pointer-double-tap
+
+    onDoubleClickLongLast(lng: number, lat: number): void {}      // pointer-double-tap-last-press
+    onDoubleClickLongFirst(lng: number, lat: number): void {}    // pointer-double-tap-first-press
+
+    onPointerDelete(): void {}  // pointer-delete
+
+    onPanStart(lng: number, lat: number): void {}       // pan-start
+    onSimplePanMove(lng: number, lat: number): void {}  // pan-move
+    onDoublePanMove(lng: number, lat: number): void {}  // pan-move-double
+    onPanStop(lng: number, lat: number): void {}        // pan-end
+
+    onPinch(scale: number): void {}      // pinch
+
+    onSwipeUp(): void {}    // swipe-up
+    onSwipeDown(): void {}  // swipe-down
+    onSwipeRight(): void {} // swipe-right
+    onSwipeLeft(): void {}  // swipe-left
 }

@@ -1,5 +1,4 @@
-import { Injectable } from "@angular/core";
-import Hammer from "hammerjs";
+import { Injectable } from '@angular/core';
 
 export enum InteractionType {
     PointerDown = "pointer-down",
@@ -7,14 +6,22 @@ export enum InteractionType {
     PointerPress = "pointer-press",
     PointerSingleTap = "pointer-single-tap",
     PointerDoubleTap = "pointer-double-tap",
+
+    PointerDoubleTapLastPress = "pointer-double-tap-last-press",
+    PointerDoubleTapFirstPress = "pointer-double-tap-first-press",
+
     PointerDelete = "pointer-delete",
+
+
     PanStart = "pan-start",
     PanMove = "pan-move",
+    PanEnd = "pan-end",
+    PanMoveDouble = "pan-move-double",
     SwipeLeft = "swipe-left",
     SwipeRight = "swipe-right",
     SwipeUp = "swipe-up",
     SwipeDown = "swipe-down",
-    Pinch = "pinch"
+    Pinch = "pinch",
 }
 
 export interface InteractionEvent {
@@ -28,292 +35,304 @@ export interface InteractionEvent {
 
 }
 
+
 @Injectable({
-    providedIn: 'root'
+  providedIn: 'root',
 })
-export class InteractionService{
-    private element!: HTMLElement;
-
-    private hammer!: HammerManager; // gestion swipe + pan+ pinch
-
-    // fonction de conversion de coordonnées / si on utilise une carte par exemple ...
-    private mapProject: ((x: number, y:number) => {lat: number; lng: number}) | null = null;
-
-    // timestamp jusqu'auquel on ignore les taps/press ...
-    private ingorePointerUntil = 0;
-
-    // coordonnées de début et de fin
-    private startPos = {x: 0, y: 0};
-    private endPos = {x: 0, y: 0};
-    private currentPos = {x: 0, y: 0};
-
-    // durée de l'event pour pan et swip
-    private startTime = 0;
-
-    // déplacement du doigts ?? -> différencier clic de pan etc
-    private isSwiping = false;
-    
-    // variable d'état entre hammer et pointerevent
-    private move = false;
+export class InteractionService {
+  private element!: HTMLElement;
 
 
-    //pour les pointers
-    private activePointers = new Map<number, PointerEvent>();
-    // timer pour savoir si clic ou press
-    private downtime = 0;
-    // timer entre les clics
-    private lastTapTime = 0;
-    // essaie pour le nombre de doigts
-    private lastTapFingers = 0;
-    // utilie pour essaie plusieurs doigts
-    private tapTimeout: any;
+  private mapProject: ((x: number, y:number) => {lat: number; lng: number}) | null = null;
 
-    // méthode pour regarder / écouter un élément
-    observe(
-        element: HTMLElement, 
-        callback: (event: InteractionEvent) => void, // fonction à redéfinir selon l'element html
-        mapProject?: (x: number, y:number) => {lat: number; lng:number}
-    ){
-        this.element = element;
-        this.mapProject = mapProject ?? null; // null si undefined
-        this.initHammer(callback);
-        this.initPointerEvent(callback);
-    }
+  // ~ le nombre de doigts sur l'écran en même temps
+  private activePointer = new Map<number, PointerEvent>();
 
-    // gestion pan, pinch, swipe
-    private initHammer(callback: (e: InteractionEvent) => void){
-        this.hammer = new Hammer(this.element);
+  // clic ou press
+  private downtime = 0;
 
-        // pinch
-        this.hammer.get('pinch').set({ enable: true});
-        this.hammer.on('pinch', (e) => {
-            callback({
+  // timer entre les clics
+  private lastTatpTime = 0;
+
+  // savoir si le dernier tap est un press
+  private islastpress = false;
+
+  // savoir si c'est un doubletap
+  private isDoubleTap = false;
+
+  //
+  private ignorePointerUntil = 0;
+
+  // 
+  private tapTimeout: any;
+
+  // différence entre tap et pan
+  private isSwipping = false;
+
+  // différence entre swipe et pan
+  private move = false;
+
+  // début du pan
+  private startTime = 0;
+
+  //
+  private swipeStart = {x: 0, y: 0};
+
+  //
+  private pinchStartDist : number | null = null;
+  private ispinching = false;
+
+
+  observe(
+      element: HTMLElement, 
+      callback: (event: InteractionEvent) => void, // fonction à redéfinir selon l'element html
+      mapProject?: (x: number, y:number) => {lat: number; lng:number},
+  ){
+      this.element = element;
+      this.mapProject = mapProject ?? null; // null si undefined
+      this.initPointerEvent(callback);
+  }
+
+  private initPointerEvent(callback: (e: InteractionEvent) => void){
+
+    const pressThreshold = 500;
+    const doubleTapThreshold = 300;
+    let ignoreThreshold = 0;
+  
+    // ~ désactive le menu clic droit 
+    this.element.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+    })
+
+    // pointer down
+    this.element.addEventListener('pointerdown', (e) => {
+
+      this.activePointer.set(e.pointerId, e);
+      let co = this.convcoord(e.clientX, e.clientY);
+
+      if (this.activePointer.size == 1){
+        this.downtime = performance.now();
+        this.isDoubleTap = performance.now() - this.lastTatpTime < doubleTapThreshold;
+
+      }
+
+      callback({
+        type: InteractionType.PointerDown,
+        startPos: {...co},
+      })
+
+    })
+
+    this.element.addEventListener('pointermove', (e) => {
+      let co = this.convcoord(e.clientX, e.clientY);
+
+      this.activePointer.set(e.pointerId, e);
+
+      if (this.isSwipping){
+        if (!this.move){
+          this.move = performance.now() - this.startTime > 200;
+        }
+        else{
+          if (this.activePointer.size >= 2){
+
+            const pts = [...this.activePointer.values()]; 
+            const dist = Math.hypot( pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY );
+
+            if (!this.pinchStartDist){
+              this.pinchStartDist = dist
+            }
+            else if ( Math.abs(this.pinchStartDist - dist) > 10 || this.ispinching){
+              this.ispinching = true;
+              callback({
                 type: InteractionType.Pinch,
-                scale: Math.round((e.scale ?? 1) * 100) / 100,
-                // startPos : {...this.startPos}, // ... -> étend pour avoir startPos.x etc
-                // endPos: {...this.endPos}
-            })
-        })
-        this.hammer.on('pinchend', (e) => {
-            this.ingorePointerUntil = performance.now() + 200;
-        })
-
-        // PAN
-        this.hammer.get('pan').set({ direction: Hammer.DIRECTION_ALL});
-
-            // pan-start
-        this.hammer.on('panstart', (e) => {
-            this.startTime = performance.now();
-            this.isSwiping = true;
-            if (this.mapProject){
-                let coord = this.mapProject(e.center.x, e.center.y);
-                this.startPos = {x: coord.lat, y: coord.lng}
+                scale: dist / this.pinchStartDist,
+              })
             }
             else{
-                this.startPos.x = e.center.x;
-                this.startPos.y = e.center.y;
+              callback({
+                  type: InteractionType.PanMoveDouble,
+                  startPos : {...this.swipeStart},
+                  currentPos : {...co},
+              })
             }
 
+          }
+          else{
             callback({
-                type: InteractionType.PanStart,
-                startPos : {...this.startPos}, // ... -> étend pour avoir startPos.x etc
+                type: InteractionType.PanMove,
+                startPos : {...this.swipeStart},
+                currentPos : {...co},
             })
+          }
+
+          this.ignorePointerUntil = performance.now() + 100
+        }
+      }
+      else{
+        this.startTime = performance.now();
+        this.isSwipping = true;
+        callback({
+          type: InteractionType.PanStart,
+          startPos: {...co},
+        });
+        this.swipeStart = {...co};
+
+        if (this.tapTimeout){ // toujours vrai normalement
+          clearTimeout(this.tapTimeout);
+          this.tapTimeout = null;
+        }
+
+      }
+    })
+
+    // pointerup à chaque fois
+    this.element.addEventListener('pointerup', (e) => {
+      let co = this.convcoord(e.clientX, e.clientY);
+
+      if (this.isSwipping){
+        if (!this.move && performance.now() > this.ignorePointerUntil){
+          let dx = this.swipeStart.x - co.x;
+          let dy = this.swipeStart.y - co.y;
+
+          if (Math.abs(dx) > Math.abs(dy)){
+            callback({
+              type: dx > 0 ? InteractionType.SwipeLeft : InteractionType.SwipeRight,
+            })
+          }
+          else{
+            callback({
+              type : dy > 0 ? InteractionType.SwipeUp : InteractionType.SwipeDown,
+            })
+          }
+        }
+
+        callback({
+          type: InteractionType.PanEnd,
+          endPos : {...co},
         })
-
-            // pan-move
-        this.hammer.on('pan', (e) => {
-            if (this.mapProject){
-                let coord = this.mapProject(e.center.x, e.center.y);
-                this.currentPos = {x: coord.lat, y: coord.lng}
-            }
-            else{
-                this.currentPos.x = e.center.x;
-                this.currentPos.y = e.center.y;
-            }
-
-            if (this.move){
-                callback({
-                    type: InteractionType.PanMove,
-                    startPos : {...this.startPos},
-                    currentPos : {...this.currentPos},
-                    endPos : {...this.endPos},
-                })
-            }
-            else{
-                if (performance.now() - this.startTime > 200){
-                    this.move = true;
-                }
-            }
-        })
-
-            // pan-end / swipe
-        this.hammer.on('panend', (e) => {
-            if (performance.now() < this.ingorePointerUntil){
-                return;
-            }
-
-            if (this.mapProject){
-                let coord = this.mapProject(e.center.x, e.center.y);
-                this.endPos = {x: coord.lat, y: coord.lng}
-            }
-            else{
-                this.endPos.x = e.center.x;
-                this.endPos.y = e.center.y;
-            }
-
-            if (!this.move){
-                switch (e.direction) {
-                    case Hammer.DIRECTION_LEFT:
-                        callback({
-                            type: InteractionType.SwipeLeft,
-                            startPos : {...this.startPos},
-                            endPos : {...this.endPos},
-                        });
-                        break;
-                    case Hammer.DIRECTION_RIGHT:
-                        callback({
-                            type: InteractionType.SwipeRight,
-                            startPos : {...this.startPos},
-                            endPos : {...this.endPos},
-                        });
-                        break;
-                    case Hammer.DIRECTION_UP:
-                        callback({
-                            type: InteractionType.SwipeUp,
-                            startPos : {...this.startPos},
-                            endPos : {...this.endPos},
-                        });
-                        break;
-                    case Hammer.DIRECTION_DOWN: 
-                        callback({
-                            type: InteractionType.SwipeDown,
-                            startPos : {...this.startPos},
-                            endPos : {...this.endPos},
-                        });
-                        break;
-                }
-            }
-
-            this.ingorePointerUntil = performance.now() + 200;
-
-            // reset
-            this.move = false;
-            this.isSwiping = false;
-        })
-
-    }
-
-    // tap, press
-    private initPointerEvent(callback: (e: InteractionEvent) => void){
-
-        const pressThreshold = 500;
-        const doubleTapThreshold = 300;
         
-        // ~ désactive le menu clic droit 
-        this.element.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-        })
+        if (this.activePointer.size <= 1){
+          this.pinchStartDist = null;
+          this.ispinching = false;
+        }
 
-        // pointer down, un doigt appuie
-        this.element.addEventListener('pointerdown', (e) => {
-            this.activePointers.set(e.pointerId, e);
-            if (this.activePointers.size === 1) {
-                this.downtime = performance.now();
-                if (this.mapProject){
-                    let coord = this.mapProject(e.clientX, e.clientY);
-                    this.startPos = {x: coord.lat, y: coord.lng}
-                }
-                else{
-                    this.startPos.x = e.clientX;
-                    this.startPos.y = e.clientY;
-                }
-            }
-            callback({
-                type: InteractionType.PointerDown,
-                fingers: this.activePointers.size,
-                startPos : {...this.startPos},
-            });
-        })
+        this.isSwipping = false;
+        this.move = false;
+      }
+      else if (this.activePointer.size == 1){
+        let datenow = performance.now();
 
-        // pointer-up
-        this.element.addEventListener('pointerup', (e) => {
+        if (datenow > this.ignorePointerUntil){
+          this.ignorePointerUntil = datenow + 0; // peut être modifié
 
-            if (performance.now() < this.ingorePointerUntil){
-                this.activePointers.delete(e.pointerId);
-                return;
+
+          // double tap
+          if (this.isDoubleTap){
+            if (this.tapTimeout){ // toujours vrai normalement
+              clearTimeout(this.tapTimeout);
+              this.tapTimeout = null;
             }
 
-            if (this.mapProject){
-                let coord = this.mapProject(e.clientX, e.clientY);
-                this.endPos = {x: coord.lat, y: coord.lng}
+            if (datenow - this.downtime >= pressThreshold){
+
+              callback({
+                type: InteractionType.PointerDoubleTapLastPress,
+                currentPos: {...co},
+              })
+
+              this.islastpress = false;
             }
             else{
-                this.endPos.x = e.clientX;
-                this.endPos.y = e.clientY;
+              if (this.islastpress){
+                callback({
+                  type: InteractionType.PointerDoubleTapFirstPress,
+                  currentPos: {...co},
+                })
+              }
+              else{
+                callback({
+                  type: InteractionType.PointerDoubleTap,
+                  currentPos: {...co},
+                })
+              }
+              this.islastpress = false;
             }
+            this.isDoubleTap = false;
+            this.ignorePointerUntil = datenow + doubleTapThreshold + 10;
+          }
+
+          // press
+          else if (datenow - this.downtime >= pressThreshold){
+
+            this.islastpress = true;
+
+            this.tapTimeout = setTimeout(() => {
+
+              if (this.isDoubleTap) return;
+
+              callback({
+                type: InteractionType.PointerPress,
+                currentPos: {...co},
+              })
+            }, doubleTapThreshold) 
+
+
+          }
+          // singletap
+          else {
+            this.islastpress = false;
             
-            if (!this.isSwiping){
-                // press
-                if (performance.now() - this.downtime >= pressThreshold){
-                    callback({
-                        type: InteractionType.PointerPress,
-                        fingers: this.activePointers.size,
-                        startPos : {...this.startPos},
-                        endPos : {...this.endPos}
-                    });
-                }
-                // double tap
-                else if(performance.now()- this.lastTapTime < doubleTapThreshold){
-                    // annule le single tap
-                    if (this.tapTimeout){
-                        clearTimeout(this.tapTimeout);
-                        this.tapTimeout = null;
-                    }
-                    callback({
-                        type: InteractionType.PointerDoubleTap,
-                        fingers: this.activePointers.size,
-                        startPos : {...this.startPos},
-                        endPos : {...this.endPos}
-                    });
-                    this.lastTapTime = 0;
+            this.tapTimeout = setTimeout(() => {
 
-                }
-                // single tap
-                else{
-                    this.lastTapFingers = this.activePointers.size;
-                    this.tapTimeout = setTimeout(() => {
-                        callback({
-                            type: InteractionType.PointerSingleTap,
-                            fingers: this.lastTapFingers,
-                            startPos : {...this.startPos},
-                            endPos : {...this.endPos}
-                        }); 
-                    }, 300)
-                }
-                this.lastTapTime = performance.now();
-            }
-            this.activePointers.delete(e.pointerId);
-        })
+              if (this.isDoubleTap) return;
 
-        // pas sûr de ça 
-        this.element.addEventListener('pointercancel', (e) => {
-            /*
-            if (this.tapTimeout) {
-                clearTimeout(this.tapTimeout);
-                this.tapTimeout = null;
-            }
-            */
+              callback({
+                type: InteractionType.PointerSingleTap,
+                currentPos: {...co},
+              });
+            }, doubleTapThreshold) 
 
-            callback({
-                type: InteractionType.PointerDelete,
-                fingers: this.lastTapFingers,
-                startPos : {...this.startPos},
-                endPos : {...this.endPos}
-            }); 
-            this.activePointers.delete(e.pointerId)
-        })
+          }
+
+          this.lastTatpTime = datenow;
+
+          callback({
+            type: InteractionType.PointerUp,
+            endPos: {...co},
+          })
+        }
+      }
+
+      this.activePointer.delete(e.pointerId);
+
+    })
+
+    // pas sûr de ça
+    this.element.addEventListener('pointercancel', (e) => {
+      callback({
+        type: InteractionType.PointerDelete,
+      });
+
+      this.activePointer.delete(e.pointerId);
+    })
 
 
 
+  
+
+  }
+
+
+  private convcoord(xb: number, yb: number) : {x: number, y: number} {
+    if (this.mapProject){
+      let coord = this.mapProject(xb, yb);
+      return {x: coord.lat, y: coord.lng};
     }
+    else{
+      return {x: xb, y: yb}; 
+    }
+  }
+
+
+
 }

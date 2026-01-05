@@ -29,7 +29,7 @@ private http: HttpClient = inject(HttpClient);
       this.audioService.speakCountry(`${this.elevationService.getElevation(lat, lng)} mêtres`);
   }
 
-  override onSimplePanStart(lng: number, lat: number): void {
+  override onPanStart(lng: number, lat: number): void {
     if (this.isBeeping || this.elevationService.minValue === null || this.elevationService.maxValue === null) return;
     this.isBeeping = true;
 
@@ -50,7 +50,7 @@ private http: HttpClient = inject(HttpClient);
     ))
   }
 
-  override onSimplePanStop(lng: number, lat: number): void {
+  override onPanStop(lng: number, lat: number): void {
     if (!this.isBeeping) return;
     this.isBeeping = false;
 

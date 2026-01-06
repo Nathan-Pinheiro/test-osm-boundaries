@@ -107,6 +107,9 @@ export class InteractionService {
     // pointer down
     this.element.addEventListener('pointerdown', (e) => {
 
+      // Ignore mouse events, only accept touch and pen
+      if (e.pointerType === 'mouse') return;
+
       this.activePointer.set(e.pointerId, e);
       let co = this.convcoord(e.clientX, e.clientY);
 
@@ -124,6 +127,9 @@ export class InteractionService {
     })
 
     this.element.addEventListener('pointermove', (e) => {
+      // Ignore mouse events, only accept touch and pen
+      if (e.pointerType === 'mouse') return;
+
       let co = this.convcoord(e.clientX, e.clientY);
 
       this.activePointer.set(e.pointerId, e);
@@ -187,6 +193,9 @@ export class InteractionService {
 
     // pointerup à chaque fois
     this.element.addEventListener('pointerup', (e) => {
+      // Ignore mouse events, only accept touch and pen
+      if (e.pointerType === 'mouse') return;
+
       let co = this.convcoord(e.clientX, e.clientY);
 
       if (this.isSwipping){
@@ -309,6 +318,9 @@ export class InteractionService {
 
     // pas sûr de ça
     this.element.addEventListener('pointercancel', (e) => {
+      // Ignore mouse events, only accept touch and pen
+      if (e.pointerType === 'mouse') return;
+
       callback({
         type: InteractionType.PointerDelete,
       });

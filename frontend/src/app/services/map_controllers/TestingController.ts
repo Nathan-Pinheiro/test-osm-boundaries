@@ -17,7 +17,7 @@ export class TestingController extends MapController {
 
     override onSimpleClick(lng: number, lat: number): void 
     {
-        console.log(`[Simple Click detected - Position: [${lat}, ${lng}]`);
+        console.log(`[TestingController] Simple Click detected - Position: [${lat}, ${lng}]`);
     }
     
     override onLongClick(lng: number, lat: number): void {
@@ -40,20 +40,20 @@ export class TestingController extends MapController {
     }
 
     override onPanStart(lng: number, lat: number): void {
-        console.log(`[TestingController] Pan start detected - Position: [${lng}, ${lng}]`);
+        console.log(`[TestingController] Pan start detected - Position: [${lng}, ${lat}]`);
     }
 
-    // override onSimplePanMove(lng: number, lat: number): void 
-    // {
-    //     console.log(`[TestingController] Simple Pan Move - Position: [${lng}, ${lng}]`);
-    // }
+    override onSimplePanMove(lng: number, lat: number): void 
+    {
+        console.log(`[TestingController] Simple Pan Move - Position: [${lat}, ${lng}]`);
+    }
     
     override onDoublePanMove(lng: number, lat: number): void {
-        console.log(`[TestingController] Double Pan Move detected - Position: [${lng}, ${lng}]`);
+        console.log(`[TestingController] Double Pan Move detected - Position: [${lat}, ${lng}]`);
     }
 
     override onPanStop(lng: number, lat: number): void {
-        console.log(`[TestingController] Pan stop detected - Position: [${lng}, ${lng}]`);
+        console.log(`[TestingController] Pan stop detected - Position: [${lat}, ${lng}]`);
     }
     
     override onPinch(scale: number): void {
@@ -74,5 +74,10 @@ export class TestingController extends MapController {
 
     override onSwipeLeft(): void {
         console.log(`[TestingController] Swipe left detected`);
+    }
+
+    override onPointerDelete(): void 
+    {
+        console.log(`[TestingController] Pointer delete`);
     }
 }

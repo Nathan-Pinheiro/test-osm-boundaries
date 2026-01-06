@@ -28,6 +28,7 @@ export class MapComponent
 
   private map!: L.Map;
   private mapControllers: MapController[] = [];
+  private logInterval: any;
 
   constructor(
     private interactionService: InteractionService
@@ -71,10 +72,14 @@ export class MapComponent
   }
 
   ngOnDestroy(): void {
+    if (this.logInterval) {
+      clearInterval(this.logInterval);
+    }
     if (this.map) this.map.remove();
   }
 
-  handleInteractions(evt : InteractionEvent) : void {
+  handleInteractions(evt : InteractionEvent) : void 
+  {
     if (evt.type == InteractionType.Pinch)
     {
       if(evt.scale)
@@ -86,7 +91,7 @@ export class MapComponent
     }
     else if (evt.type == InteractionType.SwipeDown)
     {
-      for(const controller of this.mapControllers) controller.onSwipeUp();
+      for(const controller of this.mapControllers) controller.onSwipeDown();
     }
     else if (evt.type == InteractionType.SwipeRight)
     {
@@ -99,62 +104,61 @@ export class MapComponent
     else if (evt.type == InteractionType.PanStart)
     {
       if (evt.startPos)
-        for(const controller of this.mapControllers) controller.onPanStart(evt.startPos.x, evt.startPos.y);
+        for(const controller of this.mapControllers) controller.onPanStart(evt.startPos.y, evt.startPos.x);
     }
     else if (evt.type == InteractionType.PanMove)
     {
       if (evt.currentPos)
-        for(const controller of this.mapControllers) controller.onSimplePanMove(evt.currentPos.x, evt.currentPos.y);
+        for(const controller of this.mapControllers) controller.onSimplePanMove(evt.currentPos.y, evt.currentPos.x);
     }
     else if (evt.type == InteractionType.PanMoveDouble)
     {
       if (evt.currentPos)
-        for(const controller of this.mapControllers) controller.onDoublePanMove(evt.currentPos.x, evt.currentPos.y);
+        for(const controller of this.mapControllers) controller.onDoublePanMove(evt.currentPos.y, evt.currentPos.x);
     }
     else if (evt.type == InteractionType.PanEnd)
     {
-      if (evt.startPos)
-        for(const controller of this.mapControllers) controller.onPanStop(evt.startPos.x, evt.startPos.y);
+      if (evt.endPos)
+        for(const controller of this.mapControllers) controller.onPanStop(evt.endPos.y, evt.endPos.x);
     }
     else if (evt.type == InteractionType.PointerSingleTap)
     {
-      if (evt.startPos)
-        for(const controller of this.mapControllers) controller.onSimpleClick(evt.startPos.x, evt.startPos.y);
+      if (evt.currentPos)
+        for(const controller of this.mapControllers) controller.onSimpleClick(evt.currentPos.y, evt.currentPos.x);
     }
     else if (evt.type == InteractionType.PointerDoubleTap)
     {
-      if (evt.startPos)
-        for(const controller of this.mapControllers) controller.onDoubleClick(evt.startPos.x, evt.startPos.y);
+      if (evt.currentPos)
+        for(const controller of this.mapControllers) controller.onDoubleClick(evt.currentPos.y, evt.currentPos.x);
     }
     else if (evt.type == InteractionType.PointerPress)
     {
-      if (evt.startPos)
-        for(const controller of this.mapControllers) controller.onLongClick(evt.startPos.x, evt.startPos.y);
+      if (evt.currentPos)
+        for(const controller of this.mapControllers) controller.onLongClick(evt.currentPos.y, evt.currentPos.x);
     }
     else if (evt.type == InteractionType.PointerDoubleTapLastPress)
     {
-      if (evt.startPos)
-        for(const controller of this.mapControllers) controller.onDoubleClickLongLast(evt.startPos.x, evt.startPos.y);
+      if (evt.currentPos)
+        for(const controller of this.mapControllers) controller.onDoubleClickLongLast(evt.currentPos.y, evt.currentPos.x);
     }
     else if (evt.type == InteractionType.PointerDoubleTapFirstPress)
     {
-      if (evt.startPos)
-        for(const controller of this.mapControllers) controller.onDoubleClickLongFirst(evt.startPos.x, evt.startPos.y);
+      if (evt.currentPos)
+        for(const controller of this.mapControllers) controller.onDoubleClickLongFirst(evt.currentPos.y, evt.currentPos.x);
     }
     else if (evt.type == InteractionType.PointerDelete)
     {
-      if (evt.startPos)
         for(const controller of this.mapControllers) controller.onPointerDelete();
     }
     else if (evt.type == InteractionType.PointerDown)
     {
       if (evt.startPos)
-        for(const controller of this.mapControllers) controller.onPointerDown(evt.startPos.x, evt.startPos.y);
+        for(const controller of this.mapControllers) controller.onPointerDown(evt.startPos.y, evt.startPos.x);
     }
     else if (evt.type == InteractionType.PointerUp)
     {
       if (evt.endPos)
-        for(const controller of this.mapControllers) controller.onPointerUp(evt.endPos.x, evt.endPos.y);
+        for(const controller of this.mapControllers) controller.onPointerUp(evt.endPos.y, evt.endPos.x);
     }
   }
 }

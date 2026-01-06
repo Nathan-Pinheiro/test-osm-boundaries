@@ -1,6 +1,5 @@
 import { Component, ViewChild } from '@angular/core';
 import { MapComponent as MapComponent } from '../map/map.component';
-import { TopologyController } from '../services/map_controllers/TopologyController';
 import * as L from 'leaflet';
 import { AudioService } from '../services/audio.service';
 import { CountryBorderController } from '../services/map_controllers/CountryBorderController';

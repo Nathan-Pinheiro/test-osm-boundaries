@@ -1,1 +1,18 @@
-<app-map></app-map>
+<app-map 
+    [controllers]="controllers"
+    [defaultZoom]="defaultZoom"
+    [defaultCenter]="defaultCenter">
+</app-map>
+
+<div class="console-overlay">
+    <h3>Console Output ({{ logs.length }} logs)</h3>
+    <div class="console-logs">
+        <div *ngFor="let log of logs; let i = index" class="log-entry">
+            <span class="timestamp">{{ log.timestamp | date:'mediumTime' }}</span>
+            <span class="message" [ngClass]="log.type">{{ log.message }}</span>
+        </div>
+        <div *ngIf="logs.length === 0" class="no-logs">
+            No console logs yet...
+        </div>
+    </div>
+</div>

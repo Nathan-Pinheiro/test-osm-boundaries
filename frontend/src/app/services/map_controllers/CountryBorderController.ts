@@ -27,39 +27,43 @@ export class CountryBorderController extends MapController {
         this.currentBorders = null;
     }
 
-    override refreshData(): void 
+    private updateBeepSound(lat: number, lng: number) 
     {
-        // console.log('[TestingController] refreshData() called');
+        this.audioService.updateBeepFrequency(
+            this.audioService.calculateFrequencyFromDistance(
+                this.geometryService.calculateDistanceToBoundary(
+                    lat, lng, this.currentBorders
+                )
+            )
+        );
     }
+
+    private async updateCountry(lat: number, lng: number) 
+    {
+        const countryFeature = await this.geocodingService.getCountryAtPoint(lat, lng);
+        const countryName = countryFeature.features[0]?.properties?.name || 'Unknown';
+        this.audioService.speakCountry(countryName);
+
+        this.currentCountry = countryName;
+        this.currentBorders = await this.geocodingService.getCountryBordersByName(countryName) as GeoJSON<Geometry, GeoJsonProperties> | null;
+    }
+
+    // ==========================
+    // interactions
+    // ==========================
 
     override async onSimpleClick(lng: number, lat: number): Promise<void> 
     {
-        const countryFeature = await this.geocodingService.getCountryAtPoint(lng, lat);
+        const countryFeature = await this.geocodingService.getCountryAtPoint(lat, lng);
         const countryName = countryFeature.features[0]?.properties?.name || 'Unknown';
         this.audioService.speakCountry(countryName);
-    }
-    
-    override onLongClick(lng: number, lat: number): void 
-    {
-        // console.log('[TestingController] Long Click detected');
-    }
-    
-    override onDoubleClick(lng: number, lat: number): void 
-    {
-        // console.log('[TestingController] Double Click detected');
     }
     
     override async onPanStart(lng: number, lat: number): Promise<void> 
     {
-        const countryFeature = await this.geocodingService.getCountryAtPoint(lng, lat);
-        const countryName = countryFeature.features[0]?.properties?.name || 'Unknown';
-
-        this.currentCountry = countryName;  
-
-        console.log(countryName);
-        this.audioService.speakCountry(countryName);
-
-        this.currentBorders = await this.geocodingService.getCountryBordersByName(countryName) as GeoJSON<Geometry, GeoJsonProperties> | null;
+        this.updateCountry(lat, lng);
+        this.audioService.startBeep();
+        this.updateBeepSound(lat, lng);
     }
 
     override async onSimplePanMove(lng: number, lat: number): Promise<void> 
@@ -78,39 +82,20 @@ export class CountryBorderController extends MapController {
             coordinates = (geometry as GeoJSON.MultiPolygon).coordinates[0];
         }
         
-        console.log('Coordinates:', coordinates ? `${coordinates.length} rings` : 'null');
-        console.log('First ring sample:', coordinates?.[0]?.[0]);
-        
         const isInCurrentCountry = coordinates != null && this.geometryService.isPointInPolygon(lat, lng, coordinates);
         
-        console.log(`Point (lat:${lat}, lng:${lng}) in ${this.currentCountry}:`, isInCurrentCountry);
-        
-        if(!isInCurrentCountry)
-        {
-            const countryFeature = await this.geocodingService.getCountryAtPoint(lng, lat);
-            const countryName = countryFeature.features[0]?.properties?.name || 'Unknown';
+        if(!isInCurrentCountry) this.updateCountry(lat, lng);
+        this.updateBeepSound(lat, lng);
+    }
 
-            if(countryName !== this.currentCountry) {
-                this.currentCountry = countryName;
-                console.log('Changed to:', countryName);
-                // this.audioService.speakCountry(countryName);
-
-                this.currentBorders = await this.geocodingService.getCountryBordersByName(countryName) as Geometry | null;
-            }
-        }
-        else
-        {
-            // UPDATE SOUND FREQUENCY
-        }
+    override onDoublePanMove(directionX: number, directionY: number): void 
+    {
+        const moveSensitivity = 0.5; 
+        this.map.panBy([directionX * moveSensitivity, directionY * moveSensitivity], { animate: true });
     }
 
     override onPanStop(lng: number, lat: number): void 
     {
         this.audioService.stopBeep();
-    }
-
-    override onDoublePanMove(): void 
-    {
-        console.log('[TestingController] Double Pan Move detected');
-    }
+    }   
 }

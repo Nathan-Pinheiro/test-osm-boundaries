@@ -12,8 +12,8 @@ import { GeometryService } from '../services/geometry.service';
   standalone: true,
   imports: [MapComponent],
   providers: [],
-  templateUrl: './border-test.component.html',
-  styleUrls: ['./border-test.component.css']
+  templateUrl: './country-borders.component.html',
+  styleUrls: ['./country-borders.component.css']
 })
 export class BorderTestPage {
   @ViewChild(MapComponent, { static: true }) mapComponent!: MapComponent;

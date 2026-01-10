@@ -5,12 +5,13 @@ import { ParcComponent } from './parc/parc.component';
 import { RandoComponent } from './rando/rando.component';
 import { Interaction } from './interaction/interaction';
 
-import { BorderTestPage } from './border-test/border-test.component';
+import { BorderTestPage as CountryBorderPage } from './country-borders/country-borders.component';
 
 export const routes: Routes = [
   { path: '', component: MenuComponent },
-  { path: 'borders', component: BorderTestPage },
-  { path: 'border', redirectTo: 'borders', pathMatch: 'full' },
+  { path: 'country_borders', component: CountryBorderPage },
+  { path: 'border', redirectTo: 'country_borders', pathMatch: 'full' },
+  { path: 'borders', redirectTo: 'country_borders', pathMatch: 'full' },
   { path: 'parc', component: ParcComponent },
   { path: 'rando', component: RandoComponent },
   { path: 'interaction', component: Interaction},

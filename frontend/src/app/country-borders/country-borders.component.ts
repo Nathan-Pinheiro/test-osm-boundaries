@@ -6,6 +6,7 @@ import { CountryBorderController } from '../services/map_controllers/CountryBord
 import { HttpClient } from '@angular/common/http';
 import { ConfigService } from '../services/config.service';
 import { GeometryService } from '../services/geometry.service';
+import { MapMovementController } from '../services/map_controllers/MapMovementController';
 
 @Component({
   selector: 'border-test',
@@ -25,11 +26,12 @@ export class BorderTestPage {
     private geometryService: GeometryService
   ) {}
 
-  ngOnInit() 
+  ngOnInit()
   {
     this.mapComponent.defaultZoom = 5;
     this.mapComponent.defaultCenter = [45, 5];
     this.mapComponent.controllers = [
+      (map: L.Map) => new MapMovementController(map),
       (map: L.Map) => new CountryBorderController(map, this.http, this.configService, this.audioService, this.geometryService)
     ];
   }

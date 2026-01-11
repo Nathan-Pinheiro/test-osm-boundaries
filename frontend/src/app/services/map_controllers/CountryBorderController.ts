@@ -88,14 +88,13 @@ export class CountryBorderController extends MapController {
         this.updateBeepSound(lat, lng);
     }
 
-    override onDoublePanMove(directionX: number, directionY: number): void 
-    {
-        const moveSensitivity = 0.5; 
-        this.map.panBy([directionX * moveSensitivity, directionY * moveSensitivity], { animate: true });
-    }
-
     override onPanStop(lng: number, lat: number): void 
     {
         this.audioService.stopBeep();
+    }   
+
+    override getName(): string 
+    {
+        return "Frontières de pays"
     }   
 }

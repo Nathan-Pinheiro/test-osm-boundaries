@@ -1,4 +1,3 @@
-import { inject } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
 import { MapController } from "../map_controllers/MapController";
 import { AudioService } from "../audio.service";
@@ -7,14 +6,13 @@ import L from "leaflet";
 
 export class TopologyController extends MapController {
 
-private http: HttpClient = inject(HttpClient);
-
   private elevationService: ElevationService;
 
   private isBeeping: boolean = false;
 
   constructor(map: L.Map,
-    private audioService: AudioService
+    private audioService: AudioService,
+    private http: HttpClient
   ) {
     super(map);
     this.elevationService = new ElevationService(this.http, 1, 1, 1);
@@ -91,4 +89,9 @@ private http: HttpClient = inject(HttpClient);
       [(seTilePoint.x + max) % max, (seTilePoint.y + max) % max]
     ]
   }
+
+  override getName(): string 
+    {
+        return "Altitude"
+    }   
 }

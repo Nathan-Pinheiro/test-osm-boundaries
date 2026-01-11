@@ -71,6 +71,28 @@ export class MapComponent
     );
   }
 
+  public get mapInstance(): L.Map 
+  {
+    return this.map;
+  }
+
+  public setControllers(controllers: MapController[]): void 
+  {
+    this.mapControllers.forEach(element => {
+      element.layers.forEach(layer => {
+        layer.remove();
+      });
+    });
+
+    this.mapControllers = controllers;
+
+    this.mapControllers.forEach(element => {
+      element.layers.forEach(layer => {
+        layer.addTo(this.map);
+      });
+    });
+  }
+
   ngOnDestroy(): void {
     if (this.logInterval) {
       clearInterval(this.logInterval);

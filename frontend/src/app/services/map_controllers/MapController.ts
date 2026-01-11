@@ -23,6 +23,8 @@ export class MapController {
 
     //[ Interactions methods ]//
 
+    getName(): string { return "" }    // pointer-down
+
     onPointerDown(lng: number, lat: number): void {}    // pointer-down
     onPointerUp(lng: number, lat: number): void {}      // pointer-up
 
